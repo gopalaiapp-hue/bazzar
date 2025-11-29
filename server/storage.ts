@@ -1,38 +1,150 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "../db";
+import { eq, and, desc } from "drizzle-orm";
+import * as schema from "@shared/schema";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  // Users
+  getUser(id: string): Promise<schema.User | undefined>;
+  getUserByPhone(phone: string): Promise<schema.User | undefined>;
+  createUser(user: schema.InsertUser): Promise<schema.User>;
+  updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User>;
+  
+  // Pockets
+  getUserPockets(userId: string): Promise<schema.Pocket[]>;
+  createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket>;
+  updatePocket(id: number, data: Partial<schema.InsertPocket>): Promise<schema.Pocket>;
+  
+  // Transactions
+  getUserTransactions(userId: string, limit?: number): Promise<schema.Transaction[]>;
+  createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction>;
+  
+  // Lena Dena
+  getUserLenaDena(userId: string): Promise<schema.LenaDena[]>;
+  createLenaDena(entry: schema.InsertLenaDena): Promise<schema.LenaDena>;
+  updateLenaDena(id: number, data: Partial<schema.InsertLenaDena>): Promise<schema.LenaDena>;
+  
+  // Budgets
+  getUserBudgets(userId: string, month: string): Promise<schema.Budget[]>;
+  createBudget(budget: schema.InsertBudget): Promise<schema.Budget>;
+  updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget>;
+  
+  // Family
+  getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]>;
+  createFamilyMember(member: schema.InsertFamilyMember): Promise<schema.FamilyMember>;
+  
+  // Goals
+  getUserGoals(userId: string): Promise<schema.Goal[]>;
+  createGoal(goal: schema.InsertGoal): Promise<schema.Goal>;
+  updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+export class DatabaseStorage implements IStorage {
+  // Users
+  async getUser(id: string): Promise<schema.User | undefined> {
+    const result = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+    return result[0];
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getUserByPhone(phone: string): Promise<schema.User | undefined> {
+    const result = await db.select().from(schema.users).where(eq(schema.users.phone, phone)).limit(1);
+    return result[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async createUser(user: schema.InsertUser): Promise<schema.User> {
+    const result = await db.insert(schema.users).values(user).returning();
+    return result[0];
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User> {
+    const result = await db.update(schema.users).set(data).where(eq(schema.users.id, id)).returning();
+    return result[0];
+  }
+
+  // Pockets
+  async getUserPockets(userId: string): Promise<schema.Pocket[]> {
+    return await db.select().from(schema.pockets).where(eq(schema.pockets.userId, userId));
+  }
+
+  async createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket> {
+    const result = await db.insert(schema.pockets).values(pocket).returning();
+    return result[0];
+  }
+
+  async updatePocket(id: number, data: Partial<schema.InsertPocket>): Promise<schema.Pocket> {
+    const result = await db.update(schema.pockets).set(data).where(eq(schema.pockets.id, id)).returning();
+    return result[0];
+  }
+
+  // Transactions
+  async getUserTransactions(userId: string, limit: number = 50): Promise<schema.Transaction[]> {
+    return await db.select().from(schema.transactions)
+      .where(eq(schema.transactions.userId, userId))
+      .orderBy(desc(schema.transactions.date))
+      .limit(limit);
+  }
+
+  async createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction> {
+    const result = await db.insert(schema.transactions).values(transaction).returning();
+    return result[0];
+  }
+
+  // Lena Dena
+  async getUserLenaDena(userId: string): Promise<schema.LenaDena[]> {
+    return await db.select().from(schema.lenaDena)
+      .where(eq(schema.lenaDena.userId, userId))
+      .orderBy(desc(schema.lenaDena.date));
+  }
+
+  async createLenaDena(entry: schema.InsertLenaDena): Promise<schema.LenaDena> {
+    const result = await db.insert(schema.lenaDena).values(entry).returning();
+    return result[0];
+  }
+
+  async updateLenaDena(id: number, data: Partial<schema.InsertLenaDena>): Promise<schema.LenaDena> {
+    const result = await db.update(schema.lenaDena).set(data).where(eq(schema.lenaDena.id, id)).returning();
+    return result[0];
+  }
+
+  // Budgets
+  async getUserBudgets(userId: string, month: string): Promise<schema.Budget[]> {
+    return await db.select().from(schema.budgets)
+      .where(and(eq(schema.budgets.userId, userId), eq(schema.budgets.month, month)));
+  }
+
+  async createBudget(budget: schema.InsertBudget): Promise<schema.Budget> {
+    const result = await db.insert(schema.budgets).values(budget).returning();
+    return result[0];
+  }
+
+  async updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget> {
+    const result = await db.update(schema.budgets).set(data).where(eq(schema.budgets.id, id)).returning();
+    return result[0];
+  }
+
+  // Family
+  async getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]> {
+    return await db.select().from(schema.familyMembers).where(eq(schema.familyMembers.userId, userId));
+  }
+
+  async createFamilyMember(member: schema.InsertFamilyMember): Promise<schema.FamilyMember> {
+    const result = await db.insert(schema.familyMembers).values(member).returning();
+    return result[0];
+  }
+
+  // Goals
+  async getUserGoals(userId: string): Promise<schema.Goal[]> {
+    return await db.select().from(schema.goals).where(eq(schema.goals.userId, userId));
+  }
+
+  async createGoal(goal: schema.InsertGoal): Promise<schema.Goal> {
+    const result = await db.insert(schema.goals).values(goal).returning();
+    return result[0];
+  }
+
+  async updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal> {
+    const result = await db.update(schema.goals).set(data).where(eq(schema.goals.id, id)).returning();
+    return result[0];
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
