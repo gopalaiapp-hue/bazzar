@@ -193,6 +193,27 @@ export default function Onboarding() {
               <Button onClick={handleSendOtp} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
                 {loading ? "Sending..." : "Send OTP"}
               </Button>
+              <Button variant="outline" onClick={async () => {
+                setLoading(true);
+                try {
+                  const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ phone: "+91" + Math.floor(Math.random() * 9000000000 + 1000000000) }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setUserId(data.user.id);
+                    setScreen(2);
+                  }
+                } catch (error) {
+                  toast({ title: "Error", variant: "destructive" });
+                } finally {
+                  setLoading(false);
+                }
+              }} disabled={loading} className="w-full">
+                Skip & Try Demo
+              </Button>
             </div>
           </motion.div>
         )}

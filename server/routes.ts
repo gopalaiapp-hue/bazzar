@@ -15,6 +15,28 @@ export async function registerRoutes(
   
   // ========== AUTH ROUTES ==========
   
+  // Simple login (for demo/skip)
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { phone } = req.body;
+      
+      if (!phone) {
+        return res.status(400).json({ error: "Phone required" });
+      }
+
+      let user = await storage.getUserByPhone(phone);
+      
+      if (!user) {
+        user = await storage.createUser({ phone, onboardingStep: 1 });
+      }
+
+      return res.json({ user });
+    } catch (error) {
+      console.error("Login error:", error);
+      return res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   // Send OTP
   app.post("/api/auth/send-otp", async (req, res) => {
     try {
