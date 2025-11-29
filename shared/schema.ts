@@ -20,13 +20,7 @@ export const users = pgTable("users", {
   hasParents: boolean("has_parents").default(false),
   hasSideIncome: boolean("has_side_income").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
-  settings: jsonb("settings").$type<{
-    notificationTime?: string;
-    quietHours?: { start: string; end: string };
-    isLiteMode?: boolean;
-    theme?: string;
-    accentColor?: string;
-  }>().default({}),
+  settings: jsonb("settings").default({}),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
