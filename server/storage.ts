@@ -9,6 +9,11 @@ export interface IStorage {
   createUser(user: schema.InsertUser): Promise<schema.User>;
   updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User>;
   
+  // OTP
+  createOtp(otp: schema.InsertOtp): Promise<schema.Otp>;
+  getOtp(phone: string): Promise<schema.Otp | undefined>;
+  deleteOtp(id: number): Promise<void>;
+  
   // Pockets
   getUserPockets(userId: string): Promise<schema.Pocket[]>;
   createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket>;
@@ -58,6 +63,24 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User> {
     const result = await db.update(schema.users).set(data).where(eq(schema.users.id, id)).returning();
     return result[0];
+  }
+
+  // OTP
+  async createOtp(otp: schema.InsertOtp): Promise<schema.Otp> {
+    const result = await db.insert(schema.otps).values(otp).returning();
+    return result[0];
+  }
+
+  async getOtp(phone: string): Promise<schema.Otp | undefined> {
+    const result = await db.select().from(schema.otps)
+      .where(eq(schema.otps.phone, phone))
+      .orderBy(desc(schema.otps.createdAt))
+      .limit(1);
+    return result[0];
+  }
+
+  async deleteOtp(id: number): Promise<void> {
+    await db.delete(schema.otps).where(eq(schema.otps.id, id));
   }
 
   // Pockets
@@ -123,7 +146,8 @@ export class DatabaseStorage implements IStorage {
 
   // Family
   async getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]> {
-    return await db.select().from(schema.familyMembers).where(eq(schema.familyMembers.userId, userId));
+    return await db.select().from(schema.familyMembers)
+      .where(eq(schema.familyMembers.userId, userId));
   }
 
   async createFamilyMember(member: schema.InsertFamilyMember): Promise<schema.FamilyMember> {
@@ -133,7 +157,8 @@ export class DatabaseStorage implements IStorage {
 
   // Goals
   async getUserGoals(userId: string): Promise<schema.Goal[]> {
-    return await db.select().from(schema.goals).where(eq(schema.goals.userId, userId));
+    return await db.select().from(schema.goals)
+      .where(eq(schema.goals.userId, userId));
   }
 
   async createGoal(goal: schema.InsertGoal): Promise<schema.Goal> {

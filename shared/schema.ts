@@ -16,9 +16,12 @@ export const users = pgTable("users", {
   phone: text("phone").unique().notNull(),
   name: text("name"),
   language: text("language").default("English"),
+  familyType: text("family_type"), // 'single', 'couple', 'joint'
+  incomeSources: text("income_sources").array().default(sql`ARRAY[]::text[]`), // ['salary', 'freelance', etc]
   isMarried: boolean("is_married").default(false),
   hasParents: boolean("has_parents").default(false),
   hasSideIncome: boolean("has_side_income").default(false),
+  onboardingStep: integer("onboarding_step").default(0), // 0=start, 1=name, 2=family, 3=income, 4=bank, 99=complete
   onboardingComplete: boolean("onboarding_complete").default(false),
   settings: jsonb("settings").default({}),
   createdAt: timestamp("created_at").defaultNow(),
@@ -27,6 +30,20 @@ export const users = pgTable("users", {
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// OTP Table
+export const otps = pgTable("otps", {
+  id: serial("id").primaryKey(),
+  phone: text("phone").notNull(),
+  code: text("code").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertOtpSchema = createInsertSchema(otps).omit({ id: true, createdAt: true });
+export type InsertOtp = z.infer<typeof insertOtpSchema>;
+export type Otp = typeof otps.$inferSelect;
 
 // Accounts Table
 export const accounts = pgTable("accounts", {
@@ -74,6 +91,13 @@ export const transactions = pgTable("transactions", {
   icon: text("icon").default("💳"),
   date: timestamp("date").defaultNow(),
   description: text("description"),
+  paymentMethod: text("payment_method"),
+  paidBy: text("paid_by"),
+  isBorrowed: boolean("is_borrowed").default(false),
+  lenderName: text("lender_name"),
+  lenderPhone: text("lender_phone"),
+  isShared: boolean("is_shared").default(false),
+  notes: text("notes"),
 });
 
 export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true, date: true });
@@ -125,7 +149,7 @@ export const familyMembers = pgTable("family_members", {
 });
 
 export const insertFamilyMemberSchema = createInsertSchema(familyMembers).omit({ id: true });
-export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
+export type InsertFamilyMember = z.infer<typeof familyMembers>;
 export type FamilyMember = typeof familyMembers.$inferSelect;
 
 // Goals Table

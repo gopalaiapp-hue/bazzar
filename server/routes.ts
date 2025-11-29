@@ -4,6 +4,10 @@ import { storage } from "./storage";
 import { insertUserSchema, insertPocketSchema, insertTransactionSchema, insertLenaDenaSchema, insertBudgetSchema, insertFamilyMemberSchema, insertGoalSchema } from "@shared/schema";
 import { z } from "zod";
 
+function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -11,8 +15,8 @@ export async function registerRoutes(
   
   // ========== AUTH ROUTES ==========
   
-  // Simple phone-based auth (no OTP for MVP, just create/get user)
-  app.post("/api/auth/login", async (req, res) => {
+  // Send OTP
+  app.post("/api/auth/send-otp", async (req, res) => {
     try {
       const { phone } = req.body;
       
@@ -20,35 +24,167 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Phone number required" });
       }
 
+      const otp = generateOTP();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await storage.createOtp({ phone, code: otp, expiresAt });
+      
+      console.log(`🔐 OTP for ${phone}: ${otp}`); // Dev console
+      
+      return res.json({ success: true, message: "OTP sent" });
+    } catch (error) {
+      console.error("Send OTP error:", error);
+      return res.status(500).json({ error: "Failed to send OTP" });
+    }
+  });
+
+  // Verify OTP
+  app.post("/api/auth/verify-otp", async (req, res) => {
+    try {
+      const { phone, code } = req.body;
+      
+      if (!phone || !code) {
+        return res.status(400).json({ error: "Phone and OTP required" });
+      }
+
+      const otpRecord = await storage.getOtp(phone);
+      
+      if (!otpRecord) {
+        return res.status(400).json({ error: "OTP expired or not found" });
+      }
+
+      if (otpRecord.code !== code) {
+        return res.status(400).json({ error: "Invalid OTP" });
+      }
+
+      if (new Date() > otpRecord.expiresAt) {
+        return res.status(400).json({ error: "OTP expired" });
+      }
+
+      // Delete used OTP
+      await storage.deleteOtp(otpRecord.id);
+
+      // Get or create user
       let user = await storage.getUserByPhone(phone);
       
       if (!user) {
-        user = await storage.createUser({ phone });
+        user = await storage.createUser({ phone, onboardingStep: 1 });
       }
 
       return res.json({ user });
     } catch (error) {
-      console.error("Login error:", error);
-      return res.status(500).json({ error: "Login failed" });
+      console.error("Verify OTP error:", error);
+      return res.status(500).json({ error: "Verification failed" });
     }
   });
 
-  // Update onboarding data
-  app.patch("/api/auth/onboarding", async (req, res) => {
+  // Onboarding Step 1: Save name
+  app.patch("/api/onboarding/step1", async (req, res) => {
     try {
-      const { userId, isMarried, hasParents, hasSideIncome } = req.body;
+      const { userId, name } = req.body;
       
-      const user = await storage.updateUser(userId, {
+      if (!userId || !name) {
+        return res.status(400).json({ error: "User ID and name required" });
+      }
+
+      const user = await storage.updateUser(userId, { name, onboardingStep: 2 });
+      return res.json({ user });
+    } catch (error) {
+      console.error("Onboarding step 1 error:", error);
+      return res.status(500).json({ error: "Failed to save name" });
+    }
+  });
+
+  // Onboarding Step 2: Save family type
+  app.patch("/api/onboarding/step2", async (req, res) => {
+    try {
+      const { userId, familyType } = req.body;
+      
+      if (!userId || !familyType) {
+        return res.status(400).json({ error: "User ID and family type required" });
+      }
+
+      const isMarried = familyType === "couple" || familyType === "joint";
+      const hasParents = familyType === "joint";
+
+      const user = await storage.updateUser(userId, { 
+        familyType, 
         isMarried,
         hasParents,
-        hasSideIncome,
-        onboardingComplete: true
+        onboardingStep: 3 
       });
 
       return res.json({ user });
     } catch (error) {
-      console.error("Onboarding error:", error);
-      return res.status(500).json({ error: "Onboarding failed" });
+      console.error("Onboarding step 2 error:", error);
+      return res.status(500).json({ error: "Failed to save family type" });
+    }
+  });
+
+  // Onboarding Step 3: Save income sources
+  app.patch("/api/onboarding/step3", async (req, res) => {
+    try {
+      const { userId, incomeSources } = req.body;
+      
+      if (!userId || !Array.isArray(incomeSources)) {
+        return res.status(400).json({ error: "User ID and income sources array required" });
+      }
+
+      const hasSideIncome = incomeSources.length > 1 || incomeSources.includes("freelance") || incomeSources.includes("business");
+
+      const user = await storage.updateUser(userId, { 
+        incomeSources, 
+        hasSideIncome,
+        onboardingStep: 4 
+      });
+
+      return res.json({ user });
+    } catch (error) {
+      console.error("Onboarding step 3 error:", error);
+      return res.status(500).json({ error: "Failed to save income sources" });
+    }
+  });
+
+  // Onboarding Step 4: Link bank (mock) & create auto pockets
+  app.post("/api/onboarding/link-bank", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "User ID required" });
+      }
+
+      // Create default pockets based on income sources
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const pocketTemplates = [
+        { name: "Salary", type: "salary" as const, amount: 82000, color: "bg-emerald-500" },
+        { name: "Daily Cash", type: "cash" as const, amount: 5000, color: "bg-yellow-500" },
+        { name: "Bank Account", type: "bank" as const, amount: 125000, color: "bg-blue-600" },
+        { name: "UPI Wallet", type: "upi" as const, amount: 3500, color: "bg-purple-500" },
+      ];
+
+      if (user.isMarried || user.hasParents) {
+        pocketTemplates.push({ name: "Home Fund", type: "savings" as const, amount: 250000, color: "bg-orange-500" });
+      }
+
+      for (const template of pocketTemplates) {
+        await storage.createPocket({ ...template, userId });
+      }
+
+      // Complete onboarding
+      const updatedUser = await storage.updateUser(userId, { 
+        onboardingStep: 99,
+        onboardingComplete: true 
+      });
+
+      return res.json({ user: updatedUser });
+    } catch (error) {
+      console.error("Link bank error:", error);
+      return res.status(500).json({ error: "Failed to link bank" });
     }
   });
 
