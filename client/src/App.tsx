@@ -11,6 +11,9 @@ import Family from "@/pages/family";
 import Tax from "@/pages/tax";
 import Goals from "@/pages/goals";
 import Profile from "@/pages/profile";
+import LenaDena from "@/pages/lena-dena";
+import Budgets from "@/pages/budgets";
+import Couple from "@/pages/couple";
 
 function Router() {
   return (
@@ -21,6 +24,9 @@ function Router() {
       <Route path="/tax" component={Tax} />
       <Route path="/goals" component={Goals} />
       <Route path="/profile" component={Profile} />
+      <Route path="/lena-dena" component={LenaDena} />
+      <Route path="/budgets" component={Budgets} />
+      <Route path="/couple" component={Couple} />
       <Route component={NotFound} />
     </Switch>
   );
