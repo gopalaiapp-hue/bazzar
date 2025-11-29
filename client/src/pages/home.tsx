@@ -29,6 +29,12 @@ interface Transaction {
   isShared: boolean;
   createdAt: number;
   editDeadline: number;
+  receiptUrl?: string;
+  hasSplit?: boolean;
+  splitAmount1?: number;
+  splitAmount2?: number;
+  splitMethod1?: string;
+  splitMethod2?: string;
 }
 
 const CATEGORIES = [
@@ -53,6 +59,9 @@ export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
   const [formData, setFormData] = useState({
     type: "debit",
     amount: "",
@@ -65,6 +74,12 @@ export default function Home() {
     lenderName: "",
     lenderPhone: "",
     isShared: false,
+    receiptUrl: "",
+    hasSplit: false,
+    splitAmount1: "",
+    splitAmount2: "",
+    splitMethod1: "Cash",
+    splitMethod2: "UPI",
   });
 
   const totalBalance = MOCK_POCKETS.reduce((acc, pocket) => acc + pocket.amount, 0);
@@ -103,13 +118,29 @@ export default function Home() {
       return;
     }
 
+    // Validate split amounts
+    if (formData.hasSplit) {
+      const split1 = parseInt(formData.splitAmount1 as any) || 0;
+      const split2 = parseInt(formData.splitAmount2 as any) || 0;
+      const total = parseInt(formData.amount);
+      
+      if (split1 + split2 !== total) {
+        toast({ 
+          title: "Split validation failed", 
+          description: `Split amounts (₹${split1} + ₹${split2}) must equal total (₹${total})`, 
+          variant: "destructive" 
+        });
+        return;
+      }
+    }
+
     const newTx: Transaction = {
       id: editingId || `t${Date.now()}`,
       type: formData.type as "debit" | "credit",
       amount: parseInt(formData.amount),
       merchant: formData.merchant,
       category: formData.category,
-      icon: CATEGORIES.find(c => c.label === formData.category)?.icon || "💳",
+      icon: CATEGORIES.find(c => c.label === formData.category)?.icon || (customCategories.includes(formData.category) ? "🏷️" : "💳"),
       date: new Date().toLocaleDateString("en-IN"),
       paymentMethod: formData.paymentMethod,
       paidBy: formData.paidBy,
@@ -118,6 +149,12 @@ export default function Home() {
       lenderName: formData.lenderName,
       lenderPhone: formData.lenderPhone,
       isShared: formData.isShared,
+      receiptUrl: formData.receiptUrl,
+      hasSplit: formData.hasSplit,
+      splitAmount1: formData.hasSplit ? parseInt(formData.splitAmount1 as any) : undefined,
+      splitAmount2: formData.hasSplit ? parseInt(formData.splitAmount2 as any) : undefined,
+      splitMethod1: formData.hasSplit ? formData.splitMethod1 : undefined,
+      splitMethod2: formData.hasSplit ? formData.splitMethod2 : undefined,
       createdAt: editingId ? transactions.find(t => t.id === editingId)?.createdAt || Date.now() : Date.now(),
       editDeadline: editingId ? transactions.find(t => t.id === editingId)?.editDeadline || Date.now() + 3600000 : Date.now() + 3600000,
     };
@@ -228,7 +265,26 @@ export default function Home() {
 
                   {/* Category Grid */}
                   <div className="space-y-2">
-                    <Label>Category *</Label>
+                    <div className="flex justify-between items-center">
+                      <Label>Category *</Label>
+                      <button onClick={() => setShowAddCategory(!showAddCategory)} className="text-xs text-blue-600 hover:underline">+ Add Custom</button>
+                    </div>
+                    
+                    {showAddCategory && (
+                      <div className="flex gap-2 mb-2">
+                        <Input placeholder="e.g. Pet Care" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="text-xs" />
+                        <Button size="sm" onClick={() => {
+                          if (newCategory.trim()) {
+                            setCustomCategories([...customCategories, newCategory]);
+                            setFormData({...formData, category: newCategory});
+                            setNewCategory("");
+                            setShowAddCategory(false);
+                            toast({ title: "Category added", description: `"${newCategory}" created` });
+                          }
+                        }}>Add</Button>
+                      </div>
+                    )}
+                    
                     <div className="grid grid-cols-3 gap-2">
                       {CATEGORIES.map(cat => (
                         <button
@@ -241,6 +297,19 @@ export default function Home() {
                         >
                           <span className="text-lg">{cat.icon}</span>
                           {cat.label}
+                        </button>
+                      ))}
+                      {customCategories.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setFormData({...formData, category: cat})}
+                          className={cn(
+                            "p-3 rounded-lg flex flex-col items-center gap-1 border-2 transition-all text-xs font-medium",
+                            formData.category === cat ? "border-primary bg-primary/10" : "border-gray-200 hover:border-gray-300"
+                          )}
+                        >
+                          <span className="text-lg">🏷️</span>
+                          {cat}
                         </button>
                       ))}
                     </div>
@@ -279,10 +348,47 @@ export default function Home() {
 
                   {/* Payment Method */}
                   <div className="space-y-2">
-                    <Label>Payment Method *</Label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}>
-                      {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
-                    </select>
+                    <div className="flex items-center justify-between">
+                      <Label>Payment Method *</Label>
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={formData.hasSplit} onChange={(e) => setFormData({...formData, hasSplit: e.target.checked, splitAmount1: "", splitAmount2: ""})} id="split-check" />
+                        <label htmlFor="split-check" className="text-xs text-gray-600">Split payment?</label>
+                      </div>
+                    </div>
+                    
+                    {!formData.hasSplit ? (
+                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}>
+                        {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <div className="space-y-3 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">Method 1</Label>
+                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod1} onChange={(e) => setFormData({...formData, splitMethod1: e.target.value})}>
+                              {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Amount 1</Label>
+                            <Input type="number" placeholder="0" value={formData.splitAmount1} onChange={(e) => setFormData({...formData, splitAmount1: e.target.value})} className="text-xs" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">Method 2</Label>
+                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod2} onChange={(e) => setFormData({...formData, splitMethod2: e.target.value})}>
+                              {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Amount 2</Label>
+                            <Input type="number" placeholder="0" value={formData.splitAmount2} onChange={(e) => setFormData({...formData, splitAmount2: e.target.value})} className="text-xs" />
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-600">Total must equal ₹{formData.amount || 0}</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Notes */}
@@ -296,6 +402,35 @@ export default function Home() {
                     <div className="flex items-center justify-between">
                       <Label>Shared Expense</Label>
                       <Switch checked={formData.isShared} onCheckedChange={(val) => setFormData({...formData, isShared: val})} />
+                    </div>
+                  </div>
+
+                  {/* Receipt Upload */}
+                  <div className="space-y-2">
+                    <Label>Receipt (Optional)</Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                      <input 
+                        type="file" 
+                        accept="image/*,application/pdf" 
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            const file = e.target.files[0];
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              setFormData({...formData, receiptUrl: event.target?.result as string});
+                              toast({ title: "Receipt uploaded", description: file.name });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                        id="receipt-upload"
+                      />
+                      <label htmlFor="receipt-upload" className="cursor-pointer">
+                        <div className="text-2xl mb-2">📸</div>
+                        <p className="text-xs text-gray-600">Click to upload receipt or drag & drop</p>
+                        {formData.receiptUrl && <p className="text-xs text-green-600 mt-2">✓ Receipt attached</p>}
+                      </label>
                     </div>
                   </div>
                 </div>
