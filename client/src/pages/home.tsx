@@ -1,12 +1,19 @@
-import React from "react";
+import React, { useState } from "react";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { PocketCard } from "@/components/ui/pocket-card";
 import { MOCK_POCKETS, MOCK_TRANSACTIONS } from "@/lib/mock-data";
-import { Bell, Search, Filter, Plus } from "lucide-react";
+import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
+  const { toast } = useToast();
+  const [transactions, setTransactions] = useState(MOCK_TRANSACTIONS);
+  const [formData, setFormData] = useState({ type: "debit", amount: "", merchant: "", category: "Food" });
   const totalBalance = MOCK_POCKETS.reduce((acc, pocket) => acc + pocket.amount, 0);
 
   const formatCurrency = (val: number) => {
@@ -15,6 +22,27 @@ export default function Home() {
       currency: 'INR',
       maximumFractionDigits: 0
     }).format(val);
+  };
+
+  const handleAddTransaction = () => {
+    if (!formData.amount || !formData.merchant) {
+      toast({ title: "Required fields missing", description: "Enter amount and merchant name", variant: "destructive" });
+      return;
+    }
+    
+    const newTx = {
+      id: `t${Date.now()}`,
+      merchant: formData.merchant,
+      amount: parseInt(formData.amount),
+      category: formData.category,
+      date: "Today",
+      icon: formData.type === "credit" ? "💰" : "💳",
+      type: formData.type as "debit" | "credit"
+    };
+    
+    setTransactions([newTx, ...transactions]);
+    setFormData({ type: "debit", amount: "", merchant: "", category: "Food" });
+    toast({ title: formData.type === "credit" ? "Income Added" : "Expense Added", description: `₹${formData.amount} recorded` });
   };
 
   return (
@@ -34,6 +62,80 @@ export default function Home() {
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border border-blue-100">
               Daily Brief: You spent ₹1,840 today
             </div>
+          </div>
+          {/* Add Expense/Income Buttons */}
+          <div className="flex gap-3 mt-4">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button className="flex-1 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 font-bold">
+                  <ArrowDownLeft className="w-4 h-4 mr-2" /> Add Expense
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Add Expense</DialogTitle></DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Amount (₹)</Label>
+                    <Input type="number" placeholder="500" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value, type: "debit"})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Merchant / Shop Name</Label>
+                    <Input placeholder="e.g. Zomato, Amazon" value={formData.merchant} onChange={(e) => setFormData({...formData, merchant: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})}>
+                      <option>Food</option>
+                      <option>Transport</option>
+                      <option>Groceries</option>
+                      <option>Shopping</option>
+                      <option>Entertainment</option>
+                      <option>Bills</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleAddTransaction} className="w-full bg-red-600 hover:bg-red-700">Add Expense</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button className="flex-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-100 font-bold">
+                  <ArrowUpRight className="w-4 h-4 mr-2" /> Add Income
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Add Income</DialogTitle></DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Amount (₹)</Label>
+                    <Input type="number" placeholder="5000" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value, type: "credit"})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Source</Label>
+                    <Input placeholder="e.g. Salary, Freelance, Bonus" value={formData.merchant} onChange={(e) => setFormData({...formData, merchant: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})}>
+                      <option>Salary</option>
+                      <option>Freelance</option>
+                      <option>Business</option>
+                      <option>Rental</option>
+                      <option>Bonus</option>
+                      <option>Refund</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleAddTransaction} className="w-full bg-green-600 hover:bg-green-700">Add Income</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       }
@@ -73,7 +175,7 @@ export default function Home() {
           </div>
           
           <div className="space-y-4">
-            {MOCK_TRANSACTIONS.map((tx, i) => (
+            {transactions.map((tx, i) => (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
