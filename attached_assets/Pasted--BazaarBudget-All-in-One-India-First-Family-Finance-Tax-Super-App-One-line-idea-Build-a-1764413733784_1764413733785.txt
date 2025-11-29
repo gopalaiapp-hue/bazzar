@@ -1,0 +1,84 @@
+# BazaarBudget – All-in-One India-First Family Finance & Tax Super App  
+**One-line idea:** Build a zero-effort, vernacular, family-shared money app that auto-tracks cash + bank + UPI, splits expenses intelligently, and files complex ITR (salary + freelance + rental + capital gains + agriculture) in one tap — so middle-class Indians finally stop living paycheck-to-paycheck and stop paying ₹10k–20k to CAs.
+
+## One-Sentence Summary  
+BazaarBudget is the single trusted app that automatically tracks every rupee (cash, bank, UPI, irregular income), intelligently splits family expenses, forecasts dry spells, and files multi-source Income Tax Returns end-to-end — replacing Excel, multiple apps, and expensive CAs for 100+ million Indian households.
+
+## Target Personas  
+1. Arjun & Priya – Newlywed couple (26–32 yrs, ₹8–18 lakh combined income, Delhi/Mumbai/Bangalore)  
+2. Vikram – Freelancer + salaried (28–40 yrs, multiple income sources, Tier-1/2)  
+3. Sunita Tai – Small kirana/shop owner (35–55 yrs, mixes cash + UPI, Hindi/Marathi)  
+4. Ramesh Uncle – Joint family head (45–60 yrs, salary + rental + agriculture income)
+
+## Core User Stories & Acceptance Criteria
+
+### Story 1  
+**As a newlywed couple**, I want all our money (mine + spouse + cash) visible in one dashboard with automatic smart splits **so that we never fight about “who spent what” and can save for home down payment faster**.  
+
+**Acceptance Criteria  
+- All bank accounts, UPI IDs, and cash pocket of both spouses auto-linked after invite  
+- Every transaction auto-categorised and split as per predefined rules (50:50, 60:40, proportional to income, or custom)  
+- Home screen shows “Family Total”, “My Money”, “Spouse Money”, “Shared Vaults”  
+- Long-press any transaction → Split differently → auto UPI request generated  
+- Monthly family PDF report sent on WhatsApp
+
+### Story 2  
+**As a freelancer/small business owner**, I want 100% automatic tracking of irregular income and expenses (including cash) with accurate cash-flow forecast **so that I never run out of money mid-month**.  
+
+Acceptance Criteria  
+- App reads SMS, WhatsApp payments, UPI, and camera-scanned cash bills  
+- AI predicts next freelance payment date & amount (±7 days accuracy >85%)  
+- “Rolling 45-day cash-flow” graph on home screen with red/yellow/green zones  
+- Daily 8 PM brief notification: “Aaj ₹1,840 kharch | Kal se ₹8,200 bachta hai”  
+- Works completely offline for cash entry, syncs when online
+
+### Story 3  
+**As a taxpayer with salary + freelance + rental + capital gains + agriculture income**, I want to file correct ITR (ITR-2/ITR-3) directly from the app in <15 minutes without a CA **so that I save ₹5k–20k and avoid notices**.  
+
+Acceptance Criteria  
+- Auto imports Form-16, 26AS, AIS, Demat statements (Zerodha/Groww API)  
+- Correctly applies 44ADA presumptive or actual expenses, 30% rental deduction, LTCG indexation, agriculture exemption  
+- One-click old vs new regime comparison with exact tax saved  
+- Generates pre-filled ITR XML → e-file + e-verify via Aadhaar OTP inside app  
+- 100% notice-free guarantee for first 50,000 users (or full refund)
+
+### Story 4  
+**As any user**, I want the entire app in my mother tongue with voice commands **so that my parents and I can use the same family account comfortably**.  
+
+Acceptance Criteria  
+- 11 languages live on launch: Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Assamese  
+- Voice input for expense: “Bhai ₹450 petrol Dala” → auto entry  
+- All notifications and UI in chosen language
+
+### Story 5  
+**As a couple saving for first home**, I want an automated down-payment goal tracker with PMAY/subsidy eligibility **so that we buy 6–12 months faster**.  
+
+Acceptance Criteria  
+- Auto calculates max affordable EMI (≤40% of family income)  
+- Shows exact 20% down-payment amount for chosen city  
+- Daily progress bar + monthly auto-transfer to “Home Vault”  
+- One-tap PMAY / state subsidy eligibility + application link
+
+## Minimal UI/UX Notes (Key Screens)
+1. Splash → Onboarding (3 min)  
+2. Home – 5–8 Money Pockets grid + rolling cash-flow graph + daily brief card  
+3. Transactions tab – infinite scroll with search & filters  
+4. Family tab – invite, permission levels, split rules  
+5. Tax tab – one big “File ITR 2025-26” button + progress  
+6. Goals tab – Home down-payment + custom goals  
+7. Bottom navigation: Home | Transactions | Family | Tax | Profile  
+
+All flows ≤ 3 taps. No unnecessary tutorials.
+
+## Data Model (Core Tables & Key Fields)
+```sql
+users (id, phone, name, language, onboarding_step)
+family_groups (id, name, created_by)
+family_members (family_id, user_id, role: owner/viewer/editor, income_share_percent)
+accounts (id, user_id, type: bank/upi/wallet/cash, bank_name, account_number, ifsc, upi_id)
+transactions (id, account_id, amount, merchant, category, timestamp, is_cash, split_rule_id, raw_sms)
+splits (id, transaction_id, user_id, percentage/amount, status: pending/settled)
+income_forecasts (user_id, source: salary/freelance/rental, predicted_date, amount, confidence)
+tax_data (user_id, ay, form16_json, ais_json, demat_json, regime: old/new, status: drafted/filed)
+goals (id, user_id/family_id, type: home/custom, target_amount, deadline, monthly_contribution)
+subscriptions (id, user_id, name, amount, due_date, reminder_days)
