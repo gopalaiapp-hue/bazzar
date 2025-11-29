@@ -23,6 +23,12 @@ export default function Profile() {
   const [isHiddenPockets, setIsHiddenPockets] = useState(false);
   const [language, setLanguage] = useState("English");
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [banks, setBanks] = useState([
+    { id: 1, name: "HDFC Bank", upi: "arjun@hdfc", type: "Bank" },
+    { id: 2, name: "PhonePe", upi: "arjun.kumar@phonepe", type: "UPI" }
+  ]);
+  const [bankForm, setBankForm] = useState({ name: "", upi: "", type: "Bank" });
+  const [editingBankId, setEditingBankId] = useState<number | null>(null);
 
   const handleExport = () => {
     toast({
@@ -69,6 +75,34 @@ export default function Profile() {
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/";
+  };
+
+  const handleAddBank = () => {
+    if (!bankForm.name || !bankForm.upi) {
+      toast({ title: "Required", description: "Fill all fields", variant: "destructive" });
+      return;
+    }
+    
+    if (editingBankId) {
+      setBanks(banks.map(b => b.id === editingBankId ? { ...b, ...bankForm } : b));
+      toast({ title: "Updated", description: "Bank details updated" });
+      setEditingBankId(null);
+    } else {
+      setBanks([...banks, { id: Date.now(), ...bankForm }]);
+      toast({ title: "Added", description: "Bank account added" });
+    }
+    
+    setBankForm({ name: "", upi: "", type: "Bank" });
+  };
+
+  const handleEditBank = (bank: any) => {
+    setBankForm(bank);
+    setEditingBankId(bank.id);
+  };
+
+  const handleDeleteBank = (id: number) => {
+    setBanks(banks.filter(b => b.id !== id));
+    toast({ title: "Deleted", description: "Bank account removed" });
   };
 
   return (
@@ -121,8 +155,56 @@ export default function Profile() {
           {/* Accounts & Cards */}
           <section className="space-y-3">
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-2">Accounts & Cards</h3>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              <MenuItem icon={CreditCard} label="Manage Banks / UPI" sublabel="HDFC, SBI, PhonePe" />
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden space-y-3 p-4">
+              <div className="flex justify-between items-center">
+                <p className="text-sm font-semibold">Banks & UPI ({banks.length})</p>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <button className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100" onClick={() => { setBankForm({ name: "", upi: "", type: "Bank" }); setEditingBankId(null); }}>+ Add</button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingBankId ? "Edit Bank" : "Add Bank / UPI"}</DialogTitle>
+                      <DialogDescription>Link your bank account or UPI for payments</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div>
+                        <Label>Account Type</Label>
+                        <select className="w-full px-3 py-2 border rounded-lg" value={bankForm.type} onChange={(e) => setBankForm({...bankForm, type: e.target.value})}>
+                          <option>Bank</option>
+                          <option>UPI</option>
+                          <option>Card</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label>Bank / Service Name</Label>
+                        <Input placeholder="e.g. HDFC, PhonePe" value={bankForm.name} onChange={(e) => setBankForm({...bankForm, name: e.target.value})} />
+                      </div>
+                      <div>
+                        <Label>Account Number / UPI ID</Label>
+                        <Input placeholder="e.g. arjun@hdfc" value={bankForm.upi} onChange={(e) => setBankForm({...bankForm, upi: e.target.value})} />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => { setBankForm({ name: "", upi: "", type: "Bank" }); setEditingBankId(null); }}>Cancel</Button>
+                      <Button onClick={handleAddBank}>{editingBankId ? "Update" : "Add"}</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              
+              {banks.map(bank => (
+                <div key={bank.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+                  <div>
+                    <p className="text-sm font-bold">{bank.name}</p>
+                    <p className="text-xs text-muted-foreground">{bank.type} • {bank.upi}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleEditBank(bank)} className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200">Edit</button>
+                    <button onClick={() => handleDeleteBank(bank.id)} className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100">Delete</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
