@@ -69,6 +69,14 @@ export default function Home() {
 
   const totalBalance = MOCK_POCKETS.reduce((acc, pocket) => acc + pocket.amount, 0);
 
+  // Calculate today's spending
+  const getTodaySpending = () => {
+    const today = new Date().toLocaleDateString("en-IN");
+    return transactions
+      .filter(tx => tx.date === today && tx.type === "debit")
+      .reduce((sum, tx) => sum + tx.amount, 0);
+  };
+
   // Load from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("bazaar_transactions");
@@ -190,7 +198,7 @@ export default function Home() {
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border border-blue-100">
-              Daily Brief: You spent ₹1,840 today
+              Daily Brief: You spent {formatCurrency(getTodaySpending())} today
             </div>
           </div>
           {/* Add Expense/Income Buttons */}
