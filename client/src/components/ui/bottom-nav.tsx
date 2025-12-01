@@ -1,18 +1,38 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Home, Wallet, FileText, Users, User, Heart, PieChart, ArrowRightLeft } from "lucide-react";
+import { Home, Users, User, Heart, PieChart, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUser } from "@/context/UserContext";
+import { useTranslation } from "react-i18next";
 
 export function BottomNav() {
   const [location] = useLocation();
+  const { familyType, isLoading } = useUser();
+  const { t } = useTranslation();
 
-  const navItems = [
-    { icon: Home, label: "Home", href: "/home" },
-    { icon: ArrowRightLeft, label: "Lena-Dena", href: "/lena-dena" },
-    { icon: PieChart, label: "Budget", href: "/budgets" },
-    { icon: Heart, label: "We", href: "/couple" },
-    { icon: User, label: "Profile", href: "/profile" },
+  const baseItems = [
+    { icon: Home, label: t('navigation.home'), href: "/home" },
+    { icon: ArrowRightLeft, label: t('navigation.lenaDena'), href: "/lenadena" },
+    { icon: PieChart, label: t('navigation.budget'), href: "/budgets" },
+    { icon: User, label: t('navigation.profile'), href: "/profile" },
   ];
+
+  let navItems = [...baseItems];
+
+  // mai_sirf: No We, No Family
+  // couple: Show We only
+  // joint: Show both We and Family
+  if (familyType === 'couple' || familyType === 'joint') {
+    navItems.splice(2, 0, { icon: Heart, label: t('navigation.we'), href: "/couple" });
+  }
+
+  if (familyType === 'joint') {
+    navItems.push({ icon: Users, label: t('navigation.family'), href: "/family" });
+  }
+
+  if (isLoading) {
+    navItems = baseItems;
+  }
 
   // Don't show on onboarding
   if (location === "/") return null;
@@ -29,8 +49,8 @@ export function BottomNav() {
                 isActive ? "text-primary" : "text-muted-foreground hover:text-primary/70"
               )}>
                 <div className={cn("relative", isActive && "bg-primary/10 rounded-xl px-3 py-1")}>
-                   <item.icon size={isActive ? 22 : 20} strokeWidth={isActive ? 2.5 : 2} className={cn(isActive && "text-primary")} />
-                   {item.label === "We" && <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
+                  <item.icon size={isActive ? 22 : 20} strokeWidth={isActive ? 2.5 : 2} className={cn(isActive && "text-primary")} />
+                  {item.label === "We" && <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
                 </div>
                 <span className={cn("text-[10px] font-medium", isActive && "font-bold text-primary")}>{item.label}</span>
               </div>

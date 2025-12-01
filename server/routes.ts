@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertPocketSchema, insertTransactionSchema, insertLenaDenaSchema, insertBudgetSchema, insertFamilyMemberSchema, insertGoalSchema } from "@shared/schema";
+import { insertUserSchema, insertPocketSchema, insertTransactionSchema, insertLenaDenaSchema, insertBudgetSchema, insertFamilyMemberSchema, insertGoalSchema, insertTaxDataSchema } from "@shared/schema";
 import { z } from "zod";
 
 function generateOTP(): string {
@@ -12,20 +12,20 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
   // ========== AUTH ROUTES ==========
-  
+
   // Simple login (for demo/skip)
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { phone } = req.body;
-      
+
       if (!phone) {
         return res.status(400).json({ error: "Phone required" });
       }
 
       let user = await storage.getUserByPhone(phone);
-      
+
       if (!user) {
         user = await storage.createUser({ phone, onboardingStep: 1 });
       }
@@ -37,11 +37,90 @@ export async function registerRoutes(
     }
   });
 
+  // Email/Password Signup
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const { email, password, name } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+
+      const hashedPassword = await storage.hashPassword(password);
+      const user = await storage.createUser({
+        email,
+        hashedPassword,
+        name: name || null,
+        onboardingStep: 1,
+      });
+
+      return res.json({ user });
+    } catch (error) {
+      console.error("Signup error:", error);
+      return res.status(500).json({ error: "Signup failed" });
+    }
+  });
+
+  // Email/Password Signin
+  app.post("/api/auth/signin", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user || !user.hashedPassword) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isValid = await storage.verifyPassword(password, user.hashedPassword);
+      if (!isValid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      return res.json({ user });
+    } catch (error) {
+      console.error("Signin error:", error);
+      return res.status(500).json({ error: "Signin failed" });
+    }
+  });
+
+  // Get User by ID
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      return res.json(user);
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to fetch user" });
+    }
+  });
+
+  // Update User
+  app.patch("/api/users/:id", async (req, res) => {
+    try {
+      console.log(`Updating user ${req.params.id} with data:`, req.body);
+      const user = await storage.updateUser(req.params.id, req.body);
+      console.log("User updated successfully:", user);
+      return res.json({ user });
+    } catch (error) {
+      console.error("Failed to update user:", error);
+      return res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
   // Send OTP
   app.post("/api/auth/send-otp", async (req, res) => {
     try {
       const { phone } = req.body;
-      
+
       if (!phone) {
         return res.status(400).json({ error: "Phone number required" });
       }
@@ -50,9 +129,9 @@ export async function registerRoutes(
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       await storage.createOtp({ phone, code: otp, expiresAt });
-      
+
       console.log(`🔐 OTP for ${phone}: ${otp}`); // Dev console
-      
+
       return res.json({ success: true, message: "OTP sent" });
     } catch (error) {
       console.error("Send OTP error:", error);
@@ -64,13 +143,13 @@ export async function registerRoutes(
   app.post("/api/auth/verify-otp", async (req, res) => {
     try {
       const { phone, code } = req.body;
-      
+
       if (!phone || !code) {
         return res.status(400).json({ error: "Phone and OTP required" });
       }
 
       const otpRecord = await storage.getOtp(phone);
-      
+
       if (!otpRecord) {
         return res.status(400).json({ error: "OTP expired or not found" });
       }
@@ -88,7 +167,7 @@ export async function registerRoutes(
 
       // Get or create user
       let user = await storage.getUserByPhone(phone);
-      
+
       if (!user) {
         user = await storage.createUser({ phone, onboardingStep: 1 });
       }
@@ -104,7 +183,7 @@ export async function registerRoutes(
   app.patch("/api/onboarding/step1", async (req, res) => {
     try {
       const { userId, name } = req.body;
-      
+
       if (!userId || !name) {
         return res.status(400).json({ error: "User ID and name required" });
       }
@@ -121,7 +200,7 @@ export async function registerRoutes(
   app.patch("/api/onboarding/step2", async (req, res) => {
     try {
       const { userId, familyType } = req.body;
-      
+
       if (!userId || !familyType) {
         return res.status(400).json({ error: "User ID and family type required" });
       }
@@ -129,11 +208,11 @@ export async function registerRoutes(
       const isMarried = familyType === "couple" || familyType === "joint";
       const hasParents = familyType === "joint";
 
-      const user = await storage.updateUser(userId, { 
-        familyType, 
+      const user = await storage.updateUser(userId, {
+        familyType,
         isMarried,
         hasParents,
-        onboardingStep: 3 
+        onboardingStep: 3
       });
 
       return res.json({ user });
@@ -147,17 +226,17 @@ export async function registerRoutes(
   app.patch("/api/onboarding/step3", async (req, res) => {
     try {
       const { userId, incomeSources } = req.body;
-      
+
       if (!userId || !Array.isArray(incomeSources)) {
         return res.status(400).json({ error: "User ID and income sources array required" });
       }
 
       const hasSideIncome = incomeSources.length > 1 || incomeSources.includes("freelance") || incomeSources.includes("business");
 
-      const user = await storage.updateUser(userId, { 
-        incomeSources, 
+      const user = await storage.updateUser(userId, {
+        incomeSources,
         hasSideIncome,
-        onboardingStep: 4 
+        onboardingStep: 4
       });
 
       return res.json({ user });
@@ -171,7 +250,7 @@ export async function registerRoutes(
   app.post("/api/onboarding/link-bank", async (req, res) => {
     try {
       const { userId } = req.body;
-      
+
       if (!userId) {
         return res.status(400).json({ error: "User ID required" });
       }
@@ -182,11 +261,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
 
-      const pocketTemplates = [
-        { name: "Salary", type: "salary" as const, amount: 82000, color: "bg-emerald-500" },
-        { name: "Daily Cash", type: "cash" as const, amount: 5000, color: "bg-yellow-500" },
-        { name: "Bank Account", type: "bank" as const, amount: 125000, color: "bg-blue-600" },
-        { name: "UPI Wallet", type: "upi" as const, amount: 3500, color: "bg-purple-500" },
+      const pocketTemplates: Omit<import("@shared/schema").InsertPocket, "userId">[] = [
+        { name: "Salary", type: "salary", amount: 82000, color: "bg-emerald-500" },
+        { name: "Daily Cash", type: "cash", amount: 5000, color: "bg-yellow-500" },
+        { name: "Bank Account", type: "bank", amount: 125000, color: "bg-blue-600" },
+        { name: "UPI Wallet", type: "upi", amount: 3500, color: "bg-purple-500" },
       ];
 
       if (user.isMarried || user.hasParents) {
@@ -198,9 +277,9 @@ export async function registerRoutes(
       }
 
       // Complete onboarding
-      const updatedUser = await storage.updateUser(userId, { 
+      const updatedUser = await storage.updateUser(userId, {
         onboardingStep: 99,
-        onboardingComplete: true 
+        onboardingComplete: true
       });
 
       return res.json({ user: updatedUser });
@@ -224,7 +303,7 @@ export async function registerRoutes(
   });
 
   // ========== POCKETS ROUTES ==========
-  
+
   app.get("/api/pockets/:userId", async (req, res) => {
     try {
       const pockets = await storage.getUserPockets(req.params.userId);
@@ -257,7 +336,7 @@ export async function registerRoutes(
   });
 
   // ========== TRANSACTIONS ROUTES ==========
-  
+
   app.get("/api/transactions/:userId", async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
@@ -282,7 +361,7 @@ export async function registerRoutes(
   });
 
   // ========== LENA-DENA ROUTES ==========
-  
+
   app.get("/api/lenadena/:userId", async (req, res) => {
     try {
       const entries = await storage.getUserLenaDena(req.params.userId);
@@ -315,7 +394,7 @@ export async function registerRoutes(
   });
 
   // ========== BUDGETS ROUTES ==========
-  
+
   app.get("/api/budgets/:userId", async (req, res) => {
     try {
       const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
@@ -349,7 +428,7 @@ export async function registerRoutes(
   });
 
   // ========== FAMILY ROUTES ==========
-  
+
   app.get("/api/family/:userId", async (req, res) => {
     try {
       const members = await storage.getUserFamilyMembers(req.params.userId);
@@ -373,7 +452,7 @@ export async function registerRoutes(
   });
 
   // ========== GOALS ROUTES ==========
-  
+
   app.get("/api/goals/:userId", async (req, res) => {
     try {
       const goals = await storage.getUserGoals(req.params.userId);
@@ -405,8 +484,38 @@ export async function registerRoutes(
     }
   });
 
+  // ========== TAX ROUTES ==========
+
+  app.get("/api/tax/:userId", async (req, res) => {
+    try {
+      const year = (req.query.year as string) || "2025-26";
+      let taxData = await storage.getTaxData(req.params.userId, year);
+
+      if (!taxData) {
+        // Create default if not exists
+        taxData = await storage.createTaxData({
+          userId: req.params.userId,
+          assessmentYear: year
+        });
+      }
+
+      return res.json({ taxData });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to fetch tax data" });
+    }
+  });
+
+  app.patch("/api/tax/:id", async (req, res) => {
+    try {
+      const taxData = await storage.updateTaxData(parseInt(req.params.id), req.body);
+      return res.json({ taxData });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to update tax data" });
+    }
+  });
+
   // ========== SEED DATA ROUTE (for dev) ==========
-  
+
   app.post("/api/seed/:userId", async (req, res) => {
     try {
       const userId = req.params.userId;

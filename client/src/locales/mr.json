@@ -1,0 +1,24 @@
+{
+    "home": {
+        "totalBalance": "एकूण शिल्लक",
+        "addExpense": "खर्च जोडा",
+        "addIncome": "उत्पन्न जोडा",
+        "myPockets": "माझे खिसे",
+        "manage": "व्यवस्थापित करा",
+        "recentActivity": "अलीकडील क्रियाकलाप"
+    },
+    "transaction": {
+        "amount": "रक्कम (₹)",
+        "merchant": "दुकान / व्यापाऱ्याचे नाव",
+        "category": "श्रेणी",
+        "saveExpense": "खर्च जतन करा",
+        "saveIncome": "उत्पन्न जतन करा"
+    },
+    "settings": {
+        "language": "भाषा"
+    },
+    "common": {
+        "cancel": "रद्द करा",
+        "save": "जतन करा"
+    }
+}

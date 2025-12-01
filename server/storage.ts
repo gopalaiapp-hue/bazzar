@@ -6,42 +6,52 @@ export interface IStorage {
   // Users
   getUser(id: string): Promise<schema.User | undefined>;
   getUserByPhone(phone: string): Promise<schema.User | undefined>;
+  getUserByEmail(email: string): Promise<schema.User | undefined>;
   createUser(user: schema.InsertUser): Promise<schema.User>;
   updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User>;
-  
+  hashPassword(password: string): Promise<string>;
+  verifyPassword(password: string, hash: string): Promise<boolean>;
+
   // OTP
   createOtp(otp: schema.InsertOtp): Promise<schema.Otp>;
   getOtp(phone: string): Promise<schema.Otp | undefined>;
   deleteOtp(id: number): Promise<void>;
-  
+
   // Pockets
   getUserPockets(userId: string): Promise<schema.Pocket[]>;
   createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket>;
   updatePocket(id: number, data: Partial<schema.InsertPocket>): Promise<schema.Pocket>;
-  
+
   // Transactions
   getUserTransactions(userId: string, limit?: number): Promise<schema.Transaction[]>;
   createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction>;
-  
+
   // Lena Dena
   getUserLenaDena(userId: string): Promise<schema.LenaDena[]>;
   createLenaDena(entry: schema.InsertLenaDena): Promise<schema.LenaDena>;
   updateLenaDena(id: number, data: Partial<schema.InsertLenaDena>): Promise<schema.LenaDena>;
-  
+
   // Budgets
   getUserBudgets(userId: string, month: string): Promise<schema.Budget[]>;
   createBudget(budget: schema.InsertBudget): Promise<schema.Budget>;
   updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget>;
-  
+
   // Family
   getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]>;
   createFamilyMember(member: schema.InsertFamilyMember): Promise<schema.FamilyMember>;
-  
+
   // Goals
   getUserGoals(userId: string): Promise<schema.Goal[]>;
   createGoal(goal: schema.InsertGoal): Promise<schema.Goal>;
   updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal>;
+
+  // Tax Data
+  getTaxData(userId: string, year: string): Promise<schema.TaxData | undefined>;
+  createTaxData(data: schema.InsertTaxData): Promise<schema.TaxData>;
+  updateTaxData(id: number, data: Partial<schema.InsertTaxData>): Promise<schema.TaxData>;
 }
+
+import bcrypt from "bcryptjs";
 
 export class DatabaseStorage implements IStorage {
   // Users
@@ -168,6 +178,38 @@ export class DatabaseStorage implements IStorage {
 
   async updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal> {
     const result = await db.update(schema.goals).set(data).where(eq(schema.goals.id, id)).returning();
+    return result[0];
+  }
+
+  // Auth helpers
+  async hashPassword(password: string): Promise<string> {
+    return await bcrypt.hash(password, 12);
+  }
+
+  async verifyPassword(password: string, hash: string): Promise<boolean> {
+    return await bcrypt.compare(password, hash);
+  }
+
+  async getUserByEmail(email: string): Promise<schema.User | undefined> {
+    const result = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+    return result[0];
+  }
+
+  // Tax Data
+  async getTaxData(userId: string, year: string): Promise<schema.TaxData | undefined> {
+    const result = await db.select().from(schema.taxData)
+      .where(and(eq(schema.taxData.userId, userId), eq(schema.taxData.assessmentYear, year)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createTaxData(data: schema.InsertTaxData): Promise<schema.TaxData> {
+    const result = await db.insert(schema.taxData).values(data).returning();
+    return result[0];
+  }
+
+  async updateTaxData(id: number, data: Partial<schema.InsertTaxData>): Promise<schema.TaxData> {
+    const result = await db.update(schema.taxData).set(data).where(eq(schema.taxData.id, id)).returning();
     return result[0];
   }
 }

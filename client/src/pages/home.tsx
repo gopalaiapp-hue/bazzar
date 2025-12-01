@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { PocketCard } from "@/components/ui/pocket-card";
-import { MOCK_POCKETS } from "@/lib/mock-data";
 import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,10 @@ import { Switch } from "@/components/ui/switch";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { Pocket, Transaction as DbTransaction } from "@shared/schema";
+import { useLocation } from "wouter";
+import { useUser } from "@/context/UserContext";
 
 interface Transaction {
   id: string;
@@ -55,13 +59,45 @@ const CATEGORIES = [
 const PAYMENT_METHODS = ["Cash", "UPI", "Card", "Bank Transfer", "Wallet"];
 
 export default function Home() {
+  const { t } = useTranslation();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { user } = useUser();
+  const userId = user?.id;
+
+
+  const { data: pockets = [], isLoading: pocketsLoading } = useQuery<Pocket[]>({
+    queryKey: ["pockets", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(`/api/pockets/${userId}`);
+      if (!res.ok) throw new Error("Failed to fetch pockets");
+      const data = await res.json();
+      return data.pockets;
+    },
+    enabled: !!userId,
+  });
+
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategory, setNewCategory] = useState("");
+
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [filterType, setFilterType] = useState<"all" | "debit" | "credit">("all");
+
+  // Add Pocket State
+  const [addPocketOpen, setAddPocketOpen] = useState(false);
+  const [newPocketName, setNewPocketName] = useState("");
+  const [newPocketAmount, setNewPocketAmount] = useState("");
+  const [newPocketType, setNewPocketType] = useState("cash");
+
   const [formData, setFormData] = useState({
     type: "debit",
     amount: "",
@@ -82,15 +118,7 @@ export default function Home() {
     splitMethod2: "UPI",
   });
 
-  const totalBalance = MOCK_POCKETS.reduce((acc, pocket) => acc + pocket.amount, 0);
 
-  // Calculate today's spending
-  const getTodaySpending = () => {
-    const today = new Date().toLocaleDateString("en-IN");
-    return transactions
-      .filter(tx => tx.date === today && tx.type === "debit")
-      .reduce((sum, tx) => sum + tx.amount, 0);
-  };
 
   // Load from localStorage
   useEffect(() => {
@@ -99,6 +127,27 @@ export default function Home() {
       setTransactions(JSON.parse(saved));
     }
   }, []);
+
+  if (!userId) {
+    return (
+      <MobileShell>
+        <div className="p-6 text-center space-y-4">
+          <p className="text-muted-foreground">Please complete onboarding first.</p>
+          <Button onClick={() => setLocation("/")}>Go to Onboarding</Button>
+        </div>
+      </MobileShell>
+    );
+  }
+
+  const totalBalance = pockets.reduce((acc, pocket) => acc + (pocket.amount || 0), 0);
+
+  // Calculate today's spending
+  const getTodaySpending = () => {
+    const today = new Date().toLocaleDateString("en-IN");
+    return transactions
+      .filter(tx => tx.date === today && tx.type === "debit")
+      .reduce((sum, tx) => sum + tx.amount, 0);
+  };
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("en-IN", {
@@ -123,12 +172,12 @@ export default function Home() {
       const split1 = parseInt(formData.splitAmount1 as any) || 0;
       const split2 = parseInt(formData.splitAmount2 as any) || 0;
       const total = parseInt(formData.amount);
-      
+
       if (split1 + split2 !== total) {
-        toast({ 
-          title: "Split validation failed", 
-          description: `Split amounts (₹${split1} + ₹${split2}) must equal total (₹${total})`, 
-          variant: "destructive" 
+        toast({
+          title: "Split validation failed",
+          description: `Split amounts (₹${split1} + ₹${split2}) must equal total (₹${total})`,
+          variant: "destructive"
         });
         return;
       }
@@ -170,7 +219,7 @@ export default function Home() {
     localStorage.setItem("bazaar_transactions", JSON.stringify(updated));
     setOpenDialog(false);
     setEditingId(null);
-    setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false });
+    setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" });
     toast({ title: "Transaction Saved", description: `₹${formData.amount} recorded` });
   };
 
@@ -192,6 +241,12 @@ export default function Home() {
       lenderName: tx.lenderName || "",
       lenderPhone: tx.lenderPhone || "",
       isShared: tx.isShared,
+      receiptUrl: tx.receiptUrl || "",
+      hasSplit: tx.hasSplit || false,
+      splitAmount1: tx.splitAmount1?.toString() || "",
+      splitAmount2: tx.splitAmount2?.toString() || "",
+      splitMethod1: tx.splitMethod1 || "Cash",
+      splitMethod2: tx.splitMethod2 || "UPI",
     });
     setOpenDialog(true);
   };
@@ -220,63 +275,101 @@ export default function Home() {
     toast({ title: "Price Updated" });
   };
 
+  const handleAddPocket = async () => {
+    if (!newPocketName || !newPocketAmount) {
+      toast({ title: "Required", description: "Enter name and amount", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/pockets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          name: newPocketName,
+          amount: parseInt(newPocketAmount),
+          type: newPocketType,
+          color: "bg-blue-500" // Default color
+        })
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["pockets"] });
+        setAddPocketOpen(false);
+        setNewPocketName("");
+        setNewPocketAmount("");
+        toast({ title: "Pocket Added" });
+      } else {
+        toast({ title: "Failed", description: "Could not add pocket", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
+  const filteredTransactions = transactions.filter(tx => {
+    const matchesSearch = tx.merchant.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tx.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = filterType === "all" || tx.type === filterType;
+    return matchesSearch && matchesFilter;
+  });
+
   return (
     <MobileShell
       header={
         <div className="px-6 pt-6 pb-4 bg-white sticky top-0 z-10 shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <div>
-              <p className="text-sm text-muted-foreground font-medium">Total Balance</p>
+              <p className="text-sm text-muted-foreground font-medium">{t('home.totalBalance')}</p>
               <h1 className="text-3xl font-heading font-bold text-foreground">{formatCurrency(totalBalance)}</h1>
             </div>
-            <Button variant="ghost" size="icon" className="rounded-full bg-gray-50">
+            <Button variant="ghost" size="icon" className="rounded-full bg-gray-50" onClick={() => toast({ title: t('home.notifications'), description: t('home.noNewNotifications') })}>
               <Bell className="w-5 h-5 text-gray-600" />
             </Button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border border-blue-100">
-              Daily Brief: You spent {formatCurrency(getTodaySpending())} today
+              {t('home.dailyBriefMessage', { amount: formatCurrency(getTodaySpending()) })}
             </div>
           </div>
           {/* Add Expense/Income Buttons */}
           <div className="flex gap-3 mt-4">
             <Dialog open={openDialog} onOpenChange={setOpenDialog}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setEditingId(null); setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false }); }} className="flex-1 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 font-bold">
-                  <ArrowDownLeft className="w-4 h-4 mr-2" /> Add Expense
+                <Button onClick={() => { setEditingId(null); setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" }); }} className="flex-1 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 font-bold">
+                  <ArrowDownLeft className="w-4 h-4 mr-2" /> {t('home.addExpense')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>{editingId ? "Edit Expense" : "Add Expense"}</DialogTitle>
+                  <DialogTitle>{editingId ? t('home.editExpense') : t('home.addExpense')}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   {/* Amount */}
                   <div className="space-y-2">
-                    <Label>Amount (₹) *</Label>
-                    <Input type="number" placeholder="500" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value, type: "debit"})} />
+                    <Label>{t('transaction.amount')} *</Label>
+                    <Input type="number" placeholder="500" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value, type: "debit" })} />
                   </div>
 
                   {/* Merchant */}
                   <div className="space-y-2">
-                    <Label>Merchant / Shop Name *</Label>
-                    <Input placeholder="e.g. Zomato, Amazon" value={formData.merchant} onChange={(e) => setFormData({...formData, merchant: e.target.value})} />
+                    <Label>{t('transaction.merchant')} *</Label>
+                    <Input placeholder="e.g. Zomato, Amazon" value={formData.merchant} onChange={(e) => setFormData({ ...formData, merchant: e.target.value })} />
                   </div>
 
                   {/* Category Grid */}
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <Label>Category *</Label>
-                      <button onClick={() => setShowAddCategory(!showAddCategory)} className="text-xs text-blue-600 hover:underline">+ Add Custom</button>
+                      <Label>{t('transaction.category')} *</Label>
+                      <button onClick={() => setShowAddCategory(!showAddCategory)} className="text-xs text-blue-600 hover:underline">{t('categories.addCustom')}</button>
                     </div>
-                    
+
                     {showAddCategory && (
                       <div className="flex gap-2 mb-2">
                         <Input placeholder="e.g. Pet Care" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="text-xs" />
                         <Button size="sm" onClick={() => {
                           if (newCategory.trim()) {
                             setCustomCategories([...customCategories, newCategory]);
-                            setFormData({...formData, category: newCategory});
+                            setFormData({ ...formData, category: newCategory });
                             setNewCategory("");
                             setShowAddCategory(false);
                             toast({ title: "Category added", description: `"${newCategory}" created` });
@@ -284,12 +377,12 @@ export default function Home() {
                         }}>Add</Button>
                       </div>
                     )}
-                    
+
                     <div className="grid grid-cols-3 gap-2">
                       {CATEGORIES.map(cat => (
                         <button
                           key={cat.label}
-                          onClick={() => setFormData({...formData, category: cat.label})}
+                          onClick={() => setFormData({ ...formData, category: cat.label })}
                           className={cn(
                             "p-3 rounded-lg flex flex-col items-center gap-1 border-2 transition-all text-xs font-medium",
                             formData.category === cat.label ? "border-primary bg-primary/10" : "border-gray-200 hover:border-gray-300"
@@ -302,7 +395,7 @@ export default function Home() {
                       {customCategories.map(cat => (
                         <button
                           key={cat}
-                          onClick={() => setFormData({...formData, category: cat})}
+                          onClick={() => setFormData({ ...formData, category: cat })}
                           className={cn(
                             "p-3 rounded-lg flex flex-col items-center gap-1 border-2 transition-all text-xs font-medium",
                             formData.category === cat ? "border-primary bg-primary/10" : "border-gray-200 hover:border-gray-300"
@@ -317,28 +410,28 @@ export default function Home() {
 
                   {/* Date - Read Only */}
                   <div className="space-y-2">
-                    <Label>Date (Cannot Change)</Label>
+                    <Label>{t('transaction.date')}</Label>
                     <Input disabled value={new Date().toLocaleDateString("en-IN")} />
                   </div>
 
                   {/* Borrowed Toggle */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>Borrowed from someone?</Label>
-                      <Switch checked={formData.isBorrowed} onCheckedChange={(val) => setFormData({...formData, isBorrowed: val})} />
+                      <Label>{t('transaction.borrowed')}</Label>
+                      <Switch checked={formData.isBorrowed} onCheckedChange={(val) => setFormData({ ...formData, isBorrowed: val })} />
                     </div>
                     {formData.isBorrowed && (
                       <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-3">
-                        <Input placeholder="Lender's name" value={formData.lenderName} onChange={(e) => setFormData({...formData, lenderName: e.target.value})} />
-                        <Input placeholder="Lender's phone (optional)" value={formData.lenderPhone} onChange={(e) => setFormData({...formData, lenderPhone: e.target.value})} />
+                        <Input placeholder={t('transaction.lenderName')} value={formData.lenderName} onChange={(e) => setFormData({ ...formData, lenderName: e.target.value })} />
+                        <Input placeholder={t('transaction.lenderPhone')} value={formData.lenderPhone} onChange={(e) => setFormData({ ...formData, lenderPhone: e.target.value })} />
                       </div>
                     )}
                   </div>
 
                   {/* Paid By */}
                   <div className="space-y-2">
-                    <Label>Paid By *</Label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paidBy} onChange={(e) => setFormData({...formData, paidBy: e.target.value})}>
+                    <Label>{t('transaction.paidBy')} *</Label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paidBy} onChange={(e) => setFormData({ ...formData, paidBy: e.target.value })}>
                       <option>You</option>
                       <option>Spouse</option>
                       <option>Parent</option>
@@ -349,15 +442,15 @@ export default function Home() {
                   {/* Payment Method */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>Payment Method *</Label>
+                      <Label>{t('transaction.paymentMethod')} *</Label>
                       <div className="flex items-center gap-2">
-                        <input type="checkbox" checked={formData.hasSplit} onChange={(e) => setFormData({...formData, hasSplit: e.target.checked, splitAmount1: "", splitAmount2: ""})} id="split-check" />
-                        <label htmlFor="split-check" className="text-xs text-gray-600">Split payment?</label>
+                        <input type="checkbox" checked={formData.hasSplit} onChange={(e) => setFormData({ ...formData, hasSplit: e.target.checked, splitAmount1: "", splitAmount2: "" })} id="split-check" />
+                        <label htmlFor="split-check" className="text-xs text-gray-600">{t('transaction.splitPayment')}</label>
                       </div>
                     </div>
-                    
+
                     {!formData.hasSplit ? (
-                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}>
+                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}>
                         {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                       </select>
                     ) : (
@@ -365,25 +458,25 @@ export default function Home() {
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <Label className="text-xs">Method 1</Label>
-                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod1} onChange={(e) => setFormData({...formData, splitMethod1: e.target.value})}>
+                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod1} onChange={(e) => setFormData({ ...formData, splitMethod1: e.target.value })}>
                               {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                             </select>
                           </div>
                           <div>
                             <Label className="text-xs">Amount 1</Label>
-                            <Input type="number" placeholder="0" value={formData.splitAmount1} onChange={(e) => setFormData({...formData, splitAmount1: e.target.value})} className="text-xs" />
+                            <Input type="number" placeholder="0" value={formData.splitAmount1} onChange={(e) => setFormData({ ...formData, splitAmount1: e.target.value })} className="text-xs" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <Label className="text-xs">Method 2</Label>
-                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod2} onChange={(e) => setFormData({...formData, splitMethod2: e.target.value})}>
+                            <select className="w-full px-2 py-2 border text-xs rounded" value={formData.splitMethod2} onChange={(e) => setFormData({ ...formData, splitMethod2: e.target.value })}>
                               {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                             </select>
                           </div>
                           <div>
                             <Label className="text-xs">Amount 2</Label>
-                            <Input type="number" placeholder="0" value={formData.splitAmount2} onChange={(e) => setFormData({...formData, splitAmount2: e.target.value})} className="text-xs" />
+                            <Input type="number" placeholder="0" value={formData.splitAmount2} onChange={(e) => setFormData({ ...formData, splitAmount2: e.target.value })} className="text-xs" />
                           </div>
                         </div>
                         <p className="text-xs text-gray-600">Total must equal ₹{formData.amount || 0}</p>
@@ -393,31 +486,31 @@ export default function Home() {
 
                   {/* Notes */}
                   <div className="space-y-2">
-                    <Label>Notes (Optional)</Label>
-                    <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Add any additional details..." value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} rows={3} />
+                    <Label>{t('transaction.notes')}</Label>
+                    <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder={t('transaction.notesPlaceholder')} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={3} />
                   </div>
 
                   {/* Shared Expense */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label>Shared Expense</Label>
-                      <Switch checked={formData.isShared} onCheckedChange={(val) => setFormData({...formData, isShared: val})} />
+                      <Label>{t('transaction.sharedExpense')}</Label>
+                      <Switch checked={formData.isShared} onCheckedChange={(val) => setFormData({ ...formData, isShared: val })} />
                     </div>
                   </div>
 
                   {/* Receipt Upload */}
                   <div className="space-y-2">
-                    <Label>Receipt (Optional)</Label>
+                    <Label>{t('transaction.receipt')}</Label>
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                      <input 
-                        type="file" 
-                        accept="image/*,application/pdf" 
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
                         onChange={(e) => {
                           if (e.target.files?.[0]) {
                             const file = e.target.files[0];
                             const reader = new FileReader();
                             reader.onload = (event) => {
-                              setFormData({...formData, receiptUrl: event.target?.result as string});
+                              setFormData({ ...formData, receiptUrl: event.target?.result as string });
                               toast({ title: "Receipt uploaded", description: file.name });
                             };
                             reader.readAsDataURL(file);
@@ -428,41 +521,41 @@ export default function Home() {
                       />
                       <label htmlFor="receipt-upload" className="cursor-pointer">
                         <div className="text-2xl mb-2">📸</div>
-                        <p className="text-xs text-gray-600">Click to upload receipt or drag & drop</p>
-                        {formData.receiptUrl && <p className="text-xs text-green-600 mt-2">✓ Receipt attached</p>}
+                        <p className="text-xs text-gray-600">{t('transaction.uploadReceipt')}</p>
+                        {formData.receiptUrl && <p className="text-xs text-green-600 mt-2">{t('transaction.receiptAttached')}</p>}
                       </label>
                     </div>
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => { setOpenDialog(false); setEditingId(null); }}>Cancel</Button>
-                  <Button onClick={handleSaveTransaction} className="bg-red-600 hover:bg-red-700">Save Expense</Button>
+                  <Button variant="outline" onClick={() => { setOpenDialog(false); setEditingId(null); }}>{t('common.cancel')}</Button>
+                  <Button onClick={handleSaveTransaction} className="bg-red-600 hover:bg-red-700">{t('transaction.saveExpense')}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
 
             <Dialog>
               <DialogTrigger asChild>
-                <Button onClick={() => { setEditingId(null); setFormData({ type: "credit", amount: "", merchant: "", category: "Salary", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false }); }} className="flex-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-100 font-bold">
-                  <ArrowUpRight className="w-4 h-4 mr-2" /> Add Income
+                <Button onClick={() => { setEditingId(null); setFormData({ type: "credit", amount: "", merchant: "", category: "Salary", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" }); }} className="flex-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-100 font-bold">
+                  <ArrowUpRight className="w-4 h-4 mr-2" /> {t('home.addIncome')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>Add Income</DialogTitle>
+                  <DialogTitle>{t('transaction.addIncome')}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
-                    <Label>Amount (₹) *</Label>
-                    <Input type="number" placeholder="5000" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value, type: "credit"})} />
+                    <Label>{t('transaction.amount')} *</Label>
+                    <Input type="number" placeholder="5000" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value, type: "credit" })} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Source *</Label>
-                    <Input placeholder="e.g. Salary, Freelance, Bonus" value={formData.merchant} onChange={(e) => setFormData({...formData, merchant: e.target.value})} />
+                    <Label>{t('transaction.source')} *</Label>
+                    <Input placeholder="e.g. Salary, Freelance, Bonus" value={formData.merchant} onChange={(e) => setFormData({ ...formData, merchant: e.target.value })} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Category *</Label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})}>
+                    <Label>{t('transaction.category')} *</Label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
                       <option>Salary</option>
                       <option>Freelance</option>
                       <option>Business</option>
@@ -472,19 +565,19 @@ export default function Home() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Payment Method *</Label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}>
+                    <Label>{t('transaction.paymentMethod')} *</Label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={formData.paymentMethod} onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}>
                       {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Notes (Optional)</Label>
-                    <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Add any details..." value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})} rows={3} />
+                    <Label>{t('transaction.notes')}</Label>
+                    <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder={t('transaction.notesPlaceholder')} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={3} />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline">Cancel</Button>
-                  <Button onClick={handleSaveTransaction} className="bg-green-600 hover:bg-green-700">Save Income</Button>
+                  <Button variant="outline">{t('common.cancel')}</Button>
+                  <Button onClick={handleSaveTransaction} className="bg-green-600 hover:bg-green-700">{t('transaction.saveIncome')}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -496,41 +589,90 @@ export default function Home() {
         {/* Pockets Grid */}
         <section>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">My Pockets</h2>
-            <Button variant="ghost" size="sm" className="text-primary h-8 px-2 text-xs font-medium">Manage</Button>
+            <h2 className="text-lg font-bold">{t('home.myPockets')}</h2>
+            <Button variant="ghost" size="sm" className="text-primary h-8 px-2 text-xs font-medium" onClick={() => toast({ title: t('common.comingSoon'), description: t('common.featureUnderDevelopment') })}>{t('home.manage')}</Button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            {MOCK_POCKETS.map((pocket) => (
-              <PocketCard key={pocket.id} {...pocket} />
-            ))}
-            <button className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[140px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors">
-              <Plus className="w-6 h-6 mb-2" />
-              <span className="text-xs font-medium">Add Pocket</span>
-            </button>
-          </div>
+          {pocketsLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {pockets.map((pocket) => (
+                <PocketCard key={pocket.id} {...pocket} id={String(pocket.id)} />
+              ))}
+              <Dialog open={addPocketOpen} onOpenChange={setAddPocketOpen}>
+                <DialogTrigger asChild>
+                  <button className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[140px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                    <Plus className="w-6 h-6 mb-2" />
+                    <span className="text-xs font-medium">Add Pocket</span>
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{t('home.addNewPocket')}</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>{t('home.pocketName')}</Label>
+                      <Input placeholder="e.g. Vacation Fund" value={newPocketName} onChange={(e) => setNewPocketName(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('home.amount')}</Label>
+                      <Input type="number" placeholder="0" value={newPocketAmount} onChange={(e) => setNewPocketAmount(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('home.type')}</Label>
+                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={newPocketType} onChange={(e) => setNewPocketType(e.target.value)}>
+                        <option value="cash">Cash</option>
+                        <option value="bank">Bank</option>
+                        <option value="upi">UPI</option>
+                        <option value="savings">Savings</option>
+                      </select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setAddPocketOpen(false)}>{t('home.cancel')}</Button>
+                    <Button onClick={handleAddPocket}>{t('home.createPocket')}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          )}
         </section>
 
         {/* Transaction History */}
         <section>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">Recent Activity</h2>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+            <h2 className="text-lg font-bold">{t('home.recentActivity')}</h2>
+            <div className="flex gap-2 items-center">
+              {showSearch && (
+                <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 120, opacity: 1 }}>
+                  <Input
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </motion.div>
+              )}
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8", showSearch && "bg-gray-100")} onClick={() => setShowSearch(!showSearch)}>
                 <Search className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8", filterType !== "all" && "text-primary bg-primary/10")} onClick={() => setFilterType(current => current === "all" ? "debit" : current === "debit" ? "credit" : "all")}>
                 <Filter className="w-4 h-4" />
               </Button>
+              {filterType !== "all" && <span className="text-[10px] font-bold text-primary uppercase">{filterType}</span>}
             </div>
           </div>
 
           <div className="space-y-4">
-            {transactions.length === 0 ? (
+            {filteredTransactions.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <p>No transactions yet. Add your first expense or income!</p>
+                <p>{transactions.length === 0 ? t('home.noTransactions') : t('home.noMatches')}</p>
               </div>
             ) : (
-              transactions.map((tx, i) => {
+              filteredTransactions.map((tx, i) => {
                 const canEdit = canEditTransaction(tx);
                 const timeLeft = Math.max(0, Math.floor((tx.editDeadline - Date.now()) / 60000));
 

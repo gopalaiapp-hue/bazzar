@@ -1,0 +1,13 @@
+{
+    "home": {
+        "totalBalance": "Total Balance",
+        "addExpense": "Add Expense",
+        "addIncome": "Add Income"
+    },
+    "settings": {
+        "language": "Language"
+    },
+    "common": {
+        "cancel": "Cancel"
+    }
+}

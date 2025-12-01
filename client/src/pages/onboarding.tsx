@@ -5,37 +5,44 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { useUser } from "@/context/UserContext";
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { login, refreshUser } = useUser();
 
   const [screen, setScreen] = useState(0);
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
+  const [isSignup, setIsSignup] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [familyType, setFamilyType] = useState<"single" | "couple" | "joint" | null>(null);
+  const [familyType, setFamilyType] = useState<"mai_sirf" | "couple" | "joint" | null>(null);
   const [incomeSources, setIncomeSources] = useState<string[]>([]);
   const [userId, setUserId] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
-  const handleSendOtp = async () => {
-    if (!phone || phone.length < 10) {
-      toast({ title: "Invalid", description: "Enter valid phone", variant: "destructive" });
+  const handleSignup = async () => {
+    if (!email || !password) {
+      toast({ title: "Invalid", description: "Enter email and password", variant: "destructive" });
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/send-otp", {
+      const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: "+91" + phone.replace(/\D/g, "").slice(-10) }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
-        toast({ title: "OTP Sent", description: "Check console for OTP (dev mode)" });
-        setScreen(1);
+        const data = await res.json();
+        setUserId(data.user.id);
+        localStorage.setItem("userId", data.user.id);
+        await refreshUser(); // Update global context without redirecting
+        setScreen(1); // Go to Name screen
       } else {
-        toast({ title: "Failed", description: "Could not send OTP", variant: "destructive" });
+        const data = await res.json();
+        toast({ title: "Signup Failed", description: data.error || "Try again", variant: "destructive" });
       }
     } catch (error) {
       toast({ title: "Error", description: "Network error", variant: "destructive" });
@@ -44,27 +51,29 @@ export default function Onboarding() {
     }
   };
 
-  const handleVerifyOtp = async () => {
-    if (!otp || otp.length !== 6) {
-      toast({ title: "Invalid", description: "Enter 6-digit OTP", variant: "destructive" });
+  const handleSignin = async () => {
+    if (!email || !password) {
+      toast({ title: "Invalid", description: "Enter email and password", variant: "destructive" });
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/verify-otp", {
+      const res = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: "+91" + phone.replace(/\D/g, "").slice(-10), code: otp }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
         const data = await res.json();
         setUserId(data.user.id);
-        setScreen(2);
+        login(data.user); // Update global context immediately
+        // Check if onboarding is complete? For now, assume signin means existing user -> Home
+        navigate("/home");
       } else {
-        toast({ title: "Invalid OTP", description: "Try again", variant: "destructive" });
+        toast({ title: "Signin Failed", description: "Invalid credentials", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", variant: "destructive" });
+      toast({ title: "Error", description: "Network error", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -83,7 +92,8 @@ export default function Onboarding() {
         body: JSON.stringify({ userId, name }),
       });
       if (res.ok) {
-        setScreen(3);
+        await refreshUser(); // Update context with name
+        setScreen(2);
       } else {
         toast({ title: "Failed", variant: "destructive" });
       }
@@ -107,7 +117,8 @@ export default function Onboarding() {
         body: JSON.stringify({ userId, familyType }),
       });
       if (res.ok) {
-        setScreen(4);
+        await refreshUser(); // Update context with familyType
+        setScreen(3);
       } else {
         toast({ title: "Failed", variant: "destructive" });
       }
@@ -131,7 +142,8 @@ export default function Onboarding() {
         body: JSON.stringify({ userId, incomeSources }),
       });
       if (res.ok) {
-        setScreen(5);
+        await refreshUser(); // Update context
+        setScreen(4);
       } else {
         toast({ title: "Failed", variant: "destructive" });
       }
@@ -151,6 +163,7 @@ export default function Onboarding() {
         body: JSON.stringify({ userId }),
       });
       if (res.ok) {
+        await refreshUser(); // Ensure final state is captured
         toast({ title: "Success!", description: "Onboarding complete" });
         setTimeout(() => navigate("/home"), 500);
       } else {
@@ -175,73 +188,64 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center p-4">
       <AnimatePresence mode="wait">
-        {/* Screen 0: Phone */}
+        {/* Screen 0: Auth (Email/Password) */}
         {screen === 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg">
             <div className="text-center">
               <h1 className="text-3xl font-bold text-blue-900">🏦 BazaarBudget</h1>
               <p className="text-sm text-gray-600 mt-2">Your Family's Money Manager</p>
             </div>
+
             <div className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium">Phone Number</Label>
-                <div className="flex gap-2 mt-2">
-                  <span className="px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium">+91</span>
-                  <Input placeholder="9876543210" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength="10" />
-                </div>
+              <div className="flex justify-center gap-4 mb-6">
+                <Button
+                  variant={isSignup ? "default" : "ghost"}
+                  onClick={() => setIsSignup(true)}
+                  className={isSignup ? "bg-blue-600" : ""}
+                >
+                  Sign Up
+                </Button>
+                <Button
+                  variant={!isSignup ? "default" : "ghost"}
+                  onClick={() => setIsSignup(false)}
+                  className={!isSignup ? "bg-blue-600" : ""}
+                >
+                  Sign In
+                </Button>
               </div>
-              <Button onClick={handleSendOtp} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
-                {loading ? "Sending..." : "Send OTP"}
-              </Button>
-              <Button variant="outline" onClick={async () => {
-                setLoading(true);
-                try {
-                  const res = await fetch("/api/auth/login", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ phone: "+91" + Math.floor(Math.random() * 9000000000 + 1000000000) }),
-                  });
-                  if (res.ok) {
-                    const data = await res.json();
-                    setUserId(data.user.id);
-                    setScreen(2);
-                  }
-                } catch (error) {
-                  toast({ title: "Error", variant: "destructive" });
-                } finally {
-                  setLoading(false);
-                }
-              }} disabled={loading} className="w-full">
-                Skip & Try Demo
+
+              <div>
+                <Label className="text-sm font-medium">Email</Label>
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Password</Label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              <Button
+                onClick={isSignup ? handleSignup : handleSignin}
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold"
+              >
+                {loading ? "Processing..." : (isSignup ? "Create Account" : "Sign In")}
               </Button>
             </div>
           </motion.div>
         )}
 
-        {/* Screen 1: OTP */}
+        {/* Screen 1: Name */}
         {screen === 1 && (
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold">Verify OTP</h2>
-              <p className="text-sm text-gray-600 mt-2">Sent to +91{phone.slice(-10)}</p>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium">Enter 6-Digit Code</Label>
-                <Input type="text" placeholder="000000" value={otp} onChange={(e) => setOtp(e.target.value.slice(0, 6))} maxLength="6" className="mt-2 text-center text-xl tracking-widest" />
-              </div>
-              <Button onClick={handleVerifyOtp} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
-                {loading ? "Verifying..." : "Verify"}
-              </Button>
-              <Button variant="outline" onClick={() => { setScreen(0); setPhone(""); setOtp(""); }} className="w-full">
-                Back
-              </Button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Screen 2: Name */}
-        {screen === 2 && (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg">
             <div className="text-center">
               <h2 className="text-2xl font-bold">Namaste! Aapka naam kya hai?</h2>
@@ -256,87 +260,91 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* Screen 3: Family Type */}
-        {screen === 3 && (
+        {/* Screen 2: Family Type */}
+        {screen === 2 && (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg">
             <div className="text-center">
               <h2 className="text-2xl font-bold">Your Family Setup</h2>
               <p className="text-sm text-gray-600 mt-2">Choose what applies to you</p>
             </div>
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-4">
               {[
-                { icon: "👤", title: "Sirf main", value: "single" as const },
-                { icon: "💑", title: "Main + spouse", value: "couple" as const, popular: true },
-                { icon: "👨‍👩‍👧‍👦", title: "Full joint family", value: "joint" as const },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setFamilyType(opt.value)}
-                  className={`w-full p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                    familyType === opt.value ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-gray-300"
-                  }`}
+                { id: "mai_sirf", label: "Mai Sirf (Single/Bachelor)", icon: "🧍", desc: "Just me managing my expenses" },
+                { id: "couple", label: "Couple", icon: "👫", desc: "Me and my partner" },
+                { id: "joint", label: "Joint Family", icon: "👨‍👩‍👧‍👦", desc: "Large family with shared expenses" },
+              ].map((type) => (
+                <div
+                  key={type.id}
+                  onClick={() => setFamilyType(type.id as any)}
+                  className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${familyType === type.id ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"
+                    }`}
                 >
-                  <span className="text-3xl">{opt.icon}</span>
-                  <div className="text-left">
-                    <p className="font-bold">{opt.title}</p>
-                    {opt.popular && <p className="text-xs text-orange-600 font-medium">Most Popular</p>}
+                  <div className="flex items-center gap-4">
+                    <span className="text-3xl">{type.icon}</span>
+                    <div>
+                      <h3 className="font-bold text-gray-900">{type.label}</h3>
+                      <p className="text-xs text-gray-500">{type.desc}</p>
+                    </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
-            <Button onClick={handleSaveFamily} disabled={loading || !familyType} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
+            <Button onClick={handleSaveFamily} disabled={!familyType || loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
               {loading ? "Saving..." : "Next"}
             </Button>
           </motion.div>
         )}
 
-        {/* Screen 4: Income Sources */}
-        {screen === 4 && (
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold">Income Sources</h2>
-              <p className="text-sm text-gray-600 mt-2">Select all that apply</p>
-            </div>
-            <div className="space-y-3">
-              {incomeOptions.map((opt) => (
-                <label key={opt.value} className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50" style={{ borderColor: incomeSources.includes(opt.value) ? "#0284c7" : "#e5e7eb" }}>
-                  <input
-                    type="checkbox"
-                    checked={incomeSources.includes(opt.value)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setIncomeSources([...incomeSources, opt.value]);
-                      } else {
-                        setIncomeSources(incomeSources.filter((s) => s !== opt.value));
-                      }
-                    }}
-                    className="w-5 h-5 accent-blue-600"
-                  />
-                  <span className="ml-3 font-medium">{opt.label}</span>
-                </label>
-              ))}
-            </div>
-            <Button onClick={handleSaveIncome} disabled={loading || incomeSources.length === 0} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
-              {loading ? "Saving..." : "Next"}
-            </Button>
-          </motion.div>
-        )}
-
-        {/* Screen 5: Bank Linking */}
-        {screen === 5 && (
+        {/* Screen 3: Income */}
+        {screen === 3 && (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg">
             <div className="text-center">
-              <h2 className="text-2xl font-bold">🏦 Link Your Bank</h2>
-              <p className="text-sm text-gray-600 mt-2">Sab kuch auto track karne ke liye</p>
+              <h2 className="text-2xl font-bold">Income Sources</h2>
+              <p className="text-sm text-gray-600 mt-2">Where does money come from?</p>
             </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-              <p className="text-sm text-gray-700">✅ Last 90 days transactions will be imported</p>
-              <p className="text-sm text-gray-700 mt-2">✅ Auto-created Pockets: Salary, Rent, Freelance, Cash</p>
-              <p className="text-xs text-blue-600 font-medium mt-3">Ready to go magic? 🪄</p>
+            <div className="grid grid-cols-2 gap-3">
+              {incomeOptions.map((option) => (
+                <div
+                  key={option.value}
+                  onClick={() => {
+                    if (incomeSources.includes(option.value)) {
+                      setIncomeSources(incomeSources.filter((i) => i !== option.value));
+                    } else {
+                      setIncomeSources([...incomeSources, option.value]);
+                    }
+                  }}
+                  className={`p-3 rounded-lg border cursor-pointer text-center text-sm font-medium transition-all ${incomeSources.includes(option.value) ? "bg-green-100 border-green-500 text-green-800" : "bg-gray-50 border-gray-200"
+                    }`}
+                >
+                  {option.label}
+                </div>
+              ))}
             </div>
-            <Button onClick={handleLinkBank} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
-              {loading ? "Setting up..." : "Complete Setup"}
+            <Button onClick={handleSaveIncome} disabled={incomeSources.length === 0 || loading} className="w-full bg-blue-600 hover:bg-blue-700 h-12 font-bold">
+              {loading ? "Saving..." : "Next"}
             </Button>
+          </motion.div>
+        )}
+
+        {/* Screen 4: Bank Link */}
+        {screen === 4 && (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="max-w-md w-full space-y-6 bg-white rounded-2xl p-8 shadow-lg text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-4xl">🏦</span>
+            </div>
+            <h2 className="text-2xl font-bold">Link Bank Account?</h2>
+            <p className="text-sm text-gray-600">We can auto-track expenses from SMS.</p>
+            <div className="space-y-3">
+              <Button onClick={handleLinkBank} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 h-12 font-bold">
+                {loading ? "Linking..." : "Yes, Secure Link"}
+              </Button>
+              <Button variant="ghost" onClick={async () => {
+                await refreshUser(); // Ensure final state is captured
+                navigate("/home");
+              }} className="w-full text-gray-500">
+                Skip for now
+              </Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

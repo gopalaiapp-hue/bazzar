@@ -1,0 +1,24 @@
+{
+    "home": {
+        "totalBalance": "মোট ব্যালেন্স",
+        "addExpense": "খরচ যোগ করুন",
+        "addIncome": "আয় যোগ করুন",
+        "myPockets": "আমার পকেট",
+        "manage": "পরিচালনা করুন",
+        "recentActivity": "সাম্প্রতিক কার্যকলাপ"
+    },
+    "transaction": {
+        "amount": "পরিমাণ (₹)",
+        "merchant": "দোকান / ব্যবসায়ীর নাম",
+        "category": "বিভাগ",
+        "saveExpense": "খরচ সংরক্ষণ করুন",
+        "saveIncome": "আয় সংরক্ষণ করুন"
+    },
+    "settings": {
+        "language": "ভাষা"
+    },
+    "common": {
+        "cancel": "বাতিল করুন",
+        "save": "সংরক্ষণ করুন"
+    }
+}

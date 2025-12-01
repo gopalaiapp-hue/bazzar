@@ -8,8 +8,32 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
+import { useUser } from "@/context/UserContext";
+import { useLocation } from "wouter";
+
 export default function Family() {
   const { toast } = useToast();
+  const { user, familyType } = useUser();
+  const [, setLocation] = useLocation();
+
+  if (familyType !== "joint") {
+    // Redirect to home if not authorized
+    // Use useEffect to avoid render loop warning, or just return null and effect
+    // But since we are inside component, better to return early
+    // However, we can't call hooks conditionally.
+    // So we should do this check after hooks.
+    // But wouter's useLocation is a hook.
+    // Let's use an effect.
+  }
+
+  React.useEffect(() => {
+    if (user && familyType !== "joint") {
+      setLocation("/home");
+      toast({ title: "Access Denied", description: "This feature is for joint families only", variant: "destructive" });
+    }
+  }, [user, familyType, setLocation, toast]);
+
+  if (!user || familyType !== "joint") return null;
   const [members, setMembers] = useState([
     { id: 1, name: "You", role: "Primary", phone: "+919876543210" }
   ]);
@@ -21,7 +45,7 @@ export default function Family() {
       toast({ title: "Required", description: "Fill all fields", variant: "destructive" });
       return;
     }
-    
+
     if (editingId) {
       setMembers(members.map(m => m.id === editingId ? { ...m, ...formData } : m));
       toast({ title: "Updated", description: "Family member updated" });
@@ -30,7 +54,7 @@ export default function Family() {
       setMembers([...members, { id: Date.now(), ...formData }]);
       toast({ title: "Added", description: "Family member added" });
     }
-    
+
     setFormData({ name: "", phone: "", role: "Family" });
   };
 
@@ -66,15 +90,15 @@ export default function Family() {
               <div className="space-y-4 py-4">
                 <div>
                   <Label>Name</Label>
-                  <Input placeholder="e.g. Priya" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+                  <Input placeholder="e.g. Priya" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
                 </div>
                 <div>
                   <Label>Phone</Label>
-                  <Input placeholder="+919876543210" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
+                  <Input placeholder="+919876543210" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
                 </div>
                 <div>
                   <Label>Relationship</Label>
-                  <select className="w-full px-3 py-2 border rounded-lg" value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})}>
+                  <select className="w-full px-3 py-2 border rounded-lg" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
                     <option>Spouse</option>
                     <option>Parent</option>
                     <option>Child</option>
@@ -120,7 +144,7 @@ export default function Family() {
         {/* Shared Pockets */}
         <section className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Shared Goals</h3>
-          
+
           <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex justify-between items-center">
             <div className="flex items-center gap-4">
               <div className="h-10 w-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600">

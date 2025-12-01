@@ -13,7 +13,9 @@ export const statusEnum = pgEnum('status', ['pending', 'settled']);
 // Users Table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  phone: text("phone").unique().notNull(),
+  phone: text("phone").unique(),
+  email: text("email").unique(),
+  hashedPassword: text("hashed_password"),
   name: text("name"),
   language: text("language").default("English"),
   familyType: text("family_type"), // 'single', 'couple', 'joint'
@@ -98,6 +100,11 @@ export const transactions = pgTable("transactions", {
   lenderPhone: text("lender_phone"),
   isShared: boolean("is_shared").default(false),
   notes: text("notes"),
+  hasSplit: boolean("has_split").default(false),
+  splitAmount1: integer("split_amount_1"),
+  splitAmount2: integer("split_amount_2"),
+  splitMethod1: text("split_method_1"),
+  splitMethod2: text("split_method_2"),
 });
 
 export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true, date: true });
@@ -149,7 +156,7 @@ export const familyMembers = pgTable("family_members", {
 });
 
 export const insertFamilyMemberSchema = createInsertSchema(familyMembers).omit({ id: true });
-export type InsertFamilyMember = z.infer<typeof familyMembers>;
+export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
 export type FamilyMember = typeof familyMembers.$inferSelect;
 
 // Goals Table
@@ -167,3 +174,25 @@ export const goals = pgTable("goals", {
 export const insertGoalSchema = createInsertSchema(goals).omit({ id: true });
 export type InsertGoal = z.infer<typeof insertGoalSchema>;
 export type Goal = typeof goals.$inferSelect;
+
+// Tax Data Table
+export const taxData = pgTable("tax_data", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  assessmentYear: text("assessment_year").notNull(), // e.g., "2025-26"
+  incomeSalary: integer("income_salary").default(0),
+  incomeInterest: integer("income_interest").default(0),
+  incomeCapitalGains: integer("income_capital_gains").default(0),
+  deductions80C: integer("deductions_80c").default(0),
+  deductions80D: integer("deductions_80d").default(0),
+  hra: integer("hra").default(0),
+  regime: text("regime").default("new"), // 'old' or 'new'
+  taxPayableOld: integer("tax_payable_old").default(0),
+  taxPayableNew: integer("tax_payable_new").default(0),
+  isFiled: boolean("is_filed").default(false),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTaxDataSchema = createInsertSchema(taxData).omit({ id: true, updatedAt: true });
+export type InsertTaxData = z.infer<typeof insertTaxDataSchema>;
+export type TaxData = typeof taxData.$inferSelect;

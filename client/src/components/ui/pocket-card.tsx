@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 export interface PocketProps {
   id: string;
   name: string;
-  type: "cash" | "bank" | "upi" | "salary" | "savings" | "family";
+  type: "custom" | "cash" | "bank" | "upi" | "salary" | "savings" | "family";
   amount: number;
   icon?: any;
   color?: string;
@@ -31,13 +31,13 @@ export function PocketCard({ name, type, amount, color = "bg-blue-500" }: Pocket
   };
 
   return (
-    <motion.div 
+    <motion.div
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between min-h-[140px] relative overflow-hidden group"
     >
       <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-10 ${color}`} />
-      
+
       <div className="flex justify-between items-start mb-4">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ${color}`}>
           {getIcon()}
