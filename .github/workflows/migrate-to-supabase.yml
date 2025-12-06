@@ -55,6 +55,10 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           chmod +x scripts/import-to-supabase.sh
+          echo "==== DEBUG: Script Content ===="
+          cat scripts/import-to-supabase.sh
+          echo "==============================="
+          ls -R migration-backups/
           # Auto-confirm the destructive action
           echo "yes" | ./scripts/import-to-supabase.sh
 
