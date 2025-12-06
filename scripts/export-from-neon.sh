@@ -156,6 +156,13 @@ md5sum "$BACKUP_DIR"/*.dump "$BACKUP_DIR"/*.sql "$BACKUP_DIR"/*.csv 2>/dev/null 
 
 echo "✅ Migration report created"
 
+# Create/update 'latest' symlink for easy reference
+echo ""
+echo "🔗 Creating 'latest' symlink..."
+rm -f ./migration-backups/latest  # Remove old symlink if exists
+ln -sf "$(basename "$BACKUP_DIR")" ./migration-backups/latest
+echo "   ./migration-backups/latest -> $BACKUP_DIR"
+
 # Final summary
 echo ""
 echo "======================================"
