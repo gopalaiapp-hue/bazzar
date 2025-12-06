@@ -8,7 +8,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@/context/UserContext";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import { Eye, EyeOff, LockKeyhole, AlertCircle } from "lucide-react";
-import { apiUrl } from "@/lib/api-config";
+import { supabase } from "@/lib/supabaseClient";
+import { createUserProfile, updateUser, validateInviteCode as validateInviteCodeApi, createInviteCode, getInviteCodeByCreator } from "@/lib/supabaseApi";
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
@@ -82,52 +83,43 @@ export default function Onboarding() {
 
     setLoading(true);
     try {
-      const endpoint = isMember ? "/api/auth/member/signup" : "/api/auth/signup";
-      const body = isMember
-        ? { email, password, name, inviteCode }
-        : { email, password };
-
-      const res = await fetch(apiUrl(endpoint), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+      // Sign up with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setUserId(data.user.id);
-        safeSetStorage("userId", data.user.id);
-        await refreshUser(); // Update global context without redirecting
+      if (authError) throw authError;
+      if (!authData.user) throw new Error("Signup failed - no user returned");
 
-        if (isMember) {
-          // Members skip onboarding steps 2-4 usually, but let's see
-          // For now, let's just go to home or maybe step 1 (name) if not provided?
-          // Actually name is provided for member signup
-          navigate("/home");
-        } else {
-          setScreen(1); // Go to Name screen for Admin
-        }
+      const newUserId = authData.user.id;
+      setUserId(newUserId);
+
+      // Create user profile in our users table
+      await createUserProfile({
+        id: newUserId,
+        email,
+        name: isMember ? name : null,
+        role: isMember ? 'member' : 'admin',
+        linked_admin_id: isMember && inviteValid ? adminName : null, // Will be updated with actual ID
+        onboarding_step: isMember ? 99 : 0,
+        onboarding_complete: isMember,
+      });
+
+      await refreshUser();
+
+      if (isMember) {
+        navigate("/home");
       } else {
-        const data = await res.json();
-        let errorMessage = data.error || "Signup failed";
-        if (data.error && data.error.includes("already registered")) {
-          errorMessage = "Email already registered. Please sign in instead.";
-        }
-        toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
+        setScreen(1); // Go to Name screen for Admin
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Signup error:", error);
-      let errorMessage = "Network error occurred";
-      if (error instanceof Error) {
-        if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error - please check your internet connection";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Request timed out - please try again";
-        } else {
-          errorMessage = "An unexpected error occurred";
-        }
+      let errorMessage = error.message || "Signup failed";
+      if (errorMessage.includes("already registered")) {
+        errorMessage = "Email already registered. Please sign in instead.";
       }
-      toast({ title: "Network Error", description: errorMessage, variant: "destructive" });
+      toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -137,24 +129,16 @@ export default function Onboarding() {
     if (!inviteCode || inviteCode.length < 8) return;
 
     try {
-      const res = await fetch(apiUrl("/api/auth/invite/validate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inviteCode }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
+      const invite = await validateInviteCodeApi(inviteCode);
+      if (invite) {
         setInviteValid(true);
-        setAdminName(data.adminName);
-        toast({ title: "Valid Code", description: `Invited by ${data.adminName}`, className: "bg-green-50 border-green-200" });
-      } else {
-        setInviteValid(false);
-        setAdminName("");
-        toast({ title: "Invalid Code", description: "Please check your invite code", variant: "destructive" });
+        setAdminName((invite as any).creator?.name || 'Admin');
+        toast({ title: "Valid Code", description: `Invited by ${(invite as any).creator?.name || 'Admin'}`, className: "bg-green-50 border-green-200" });
       }
-    } catch (error) {
-      console.error("Validation error", error);
+    } catch (error: any) {
+      setInviteValid(false);
+      setAdminName("");
+      toast({ title: "Invalid Code", description: "Please check your invite code", variant: "destructive" });
     }
   };
 
@@ -165,38 +149,20 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/auth/signin"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUserId(data.user.id);
-        login(data.user); // Update global context immediately
-        // Check if onboarding is complete? For now, assume signin means existing user -> Home
-        navigate("/home");
-      } else {
-        const data = await res.json();
-        let errorMessage = data.error || "Invalid credentials";
-        if (errorMessage.includes("Invalid credentials")) {
-          errorMessage = "Email or password is incorrect";
-        }
-        toast({ title: "Signin Failed", description: errorMessage, variant: "destructive" });
-      }
-    } catch (error) {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      if (!data.user) throw new Error("Signin failed");
+
+      setUserId(data.user.id);
+      await refreshUser();
+      navigate("/home");
+    } catch (error: any) {
       console.error("Signin error:", error);
-      let errorMessage = "Network error occurred";
-      if (error instanceof Error) {
-        if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error - please check your internet connection";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Request timed out - please try again";
-        } else {
-          errorMessage = "An unexpected error occurred";
-        }
+      let errorMessage = error.message || "Invalid credentials";
+      if (errorMessage.includes("Invalid") || errorMessage.includes("credentials")) {
+        errorMessage = "Email or password is incorrect";
       }
-      toast({ title: "Network Error", description: errorMessage, variant: "destructive" });
+      toast({ title: "Signin Failed", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -208,7 +174,6 @@ export default function Onboarding() {
       return;
     }
 
-    // Validate name length
     if (name.length < 2) {
       toast({ title: "Invalid Name", description: "Name should be at least 2 characters", variant: "destructive" });
       return;
@@ -216,19 +181,11 @@ export default function Onboarding() {
 
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/onboarding/step1"), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, name }),
-      });
-      if (res.ok) {
-        await refreshUser(); // Update context with name
-        setScreen(2);
-      } else {
-        toast({ title: "Failed", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", variant: "destructive" });
+      await updateUser(userId, { name, onboarding_step: 1 });
+      await refreshUser();
+      setScreen(2);
+    } catch (error: any) {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -241,19 +198,11 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/onboarding/step2"), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, familyType }),
-      });
-      if (res.ok) {
-        await refreshUser(); // Update context with familyType
-        setScreen(3);
-      } else {
-        toast({ title: "Failed", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", variant: "destructive" });
+      await updateUser(userId, { family_type: familyType, onboarding_step: 2 });
+      await refreshUser();
+      setScreen(3);
+    } catch (error: any) {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -266,30 +215,11 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/onboarding/step3"), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, incomeSources }),
-      });
-      if (res.ok) {
-        await refreshUser(); // Update context
-        setScreen(4);
-      } else {
-        const data = await res.json();
-        toast({ title: "Failed", description: data.error || "Failed to save name", variant: "destructive" });
-      }
-    } catch (error) {
-      console.error("Save name error:", error);
-      let errorMessage = "Network error occurred";
-      if (error instanceof Error) {
-        if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error - please check your connection";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Request timed out - please try again";
-        }
-      }
-      setNetworkError(errorMessage);
-      toast({ title: "Error", description: errorMessage, variant: "destructive" });
+      await updateUser(userId, { income_sources: incomeSources, onboarding_step: 3 });
+      await refreshUser();
+      setScreen(4);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -298,31 +228,12 @@ export default function Onboarding() {
   const handleSaveFamilyType = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/onboarding/link-bank"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (res.ok) {
-        await refreshUser(); // Ensure final state is captured
-        toast({ title: "Success!", description: "Onboarding complete" });
-        setTimeout(() => navigate("/home"), 500);
-      } else {
-        const data = await res.json();
-        toast({ title: "Failed", description: data.error || "Failed to save family type", variant: "destructive" });
-      }
-    } catch (error) {
-      console.error("Save family error:", error);
-      let errorMessage = "Network error occurred";
-      if (error instanceof Error) {
-        if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error - please check your connection";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Request timed out - please try again";
-        }
-      }
-      setNetworkError(errorMessage);
-      toast({ title: "Error", description: errorMessage, variant: "destructive" });
+      await updateUser(userId, { onboarding_step: 99, onboarding_complete: true });
+      await refreshUser();
+      toast({ title: "Success!", description: "Onboarding complete" });
+      setTimeout(() => navigate("/home"), 500);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -333,20 +244,19 @@ export default function Onboarding() {
   const handleGenerateInvite = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/auth/invite/generate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setGeneratedInviteCode(data.invite.code);
-      } else {
-        toast({ title: "Failed", description: "Could not generate invite code", variant: "destructive" });
+      // Check if user already has an invite code
+      let invite = await getInviteCodeByCreator(userId);
+      if (!invite) {
+        // Generate a random 8-character code
+        const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+        invite = await createInviteCode({ code, creator_id: userId, status: 'active' });
       }
-    } catch (error) {
+      if (invite) {
+        setGeneratedInviteCode(invite.code);
+      }
+    } catch (error: any) {
       console.error("Generate invite error:", error);
-      toast({ title: "Error", description: "Network error", variant: "destructive" });
+      toast({ title: "Failed", description: "Could not generate invite code", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -355,38 +265,19 @@ export default function Onboarding() {
   const handleLinkBank = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/onboarding/link-bank"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (res.ok) {
-        await refreshUser(); // Ensure final state is captured
+      await updateUser(userId, { onboarding_step: 99, onboarding_complete: true });
+      await refreshUser();
 
-        // If Couple or Joint, go to Invite Screen
-        if (familyType === 'couple' || familyType === 'joint') {
-          await handleGenerateInvite();
-          setScreen(5);
-        } else {
-          toast({ title: "Success!", description: "Onboarding complete" });
-          setTimeout(() => navigate("/home"), 500);
-        }
+      // If Couple or Joint, go to Invite Screen
+      if (familyType === 'couple' || familyType === 'joint') {
+        await handleGenerateInvite();
+        setScreen(5);
       } else {
-        const data = await res.json();
-        toast({ title: "Failed", description: data.error || "Failed to save family type", variant: "destructive" });
+        toast({ title: "Success!", description: "Onboarding complete" });
+        setTimeout(() => navigate("/home"), 500);
       }
-    } catch (error) {
-      console.error("Save family error:", error);
-      let errorMessage = "Network error occurred";
-      if (error instanceof Error) {
-        if (error.message.includes("Failed to fetch")) {
-          errorMessage = "Network error - please check your connection";
-        } else if (error.message.includes("timeout")) {
-          errorMessage = "Request timed out - please try again";
-        }
-      }
-      setNetworkError(errorMessage);
-      toast({ title: "Error", description: errorMessage, variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }

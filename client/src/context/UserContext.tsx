@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { apiUrl } from "@/lib/api-config";
+import { supabase } from "@/lib/supabaseClient";
+import { getUserById, createUserProfile } from "@/lib/supabaseApi";
+import type { User as SupabaseUser, Session } from "@supabase/supabase-js";
 
 type User = {
     id: string;
@@ -18,10 +20,12 @@ type User = {
 
 type UserContextType = {
     user: User | null;
+    supabaseUser: SupabaseUser | null;
+    session: Session | null;
     isLoading: boolean;
     familyType: "mai_sirf" | "couple" | "joint" | null;
     login: (user: User) => void;
-    logout: () => void;
+    logout: () => Promise<void>;
     refreshUser: () => Promise<void>;
 };
 
@@ -29,86 +33,68 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
+    const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
+    const [session, setSession] = useState<Session | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [, setLocation] = useLocation();
     const { toast } = useToast();
 
-    const safeGetItem = (key: string) => {
+    // Fetch user profile from our users table
+    const fetchUserProfile = async (userId: string) => {
         try {
-            return localStorage.getItem(key);
-        } catch (e) {
-            console.warn("Storage access denied:", e);
-            return null;
-        }
-    };
-
-    const safeSetItem = (key: string, value: string) => {
-        try {
-            localStorage.setItem(key, value);
-        } catch (e) {
-            console.warn("Storage access denied:", e);
-        }
-    };
-
-    const safeRemoveItem = (key: string) => {
-        try {
-            localStorage.removeItem(key);
-        } catch (e) {
-            console.warn("Storage access denied:", e);
-        }
-    };
-
-    const refreshUser = async () => {
-        const userId = safeGetItem("userId");
-        if (!userId) {
-            setIsLoading(false);
-            return;
-        }
-
-        try {
-            // We need an endpoint to get user details. 
-            // Currently we might not have a dedicated /api/auth/me, but we can use /api/users/:id if it exists
-            // or rely on the fact that we just have the ID.
-            // For now, let's assume we can fetch user details.
-            // If not, we might need to add a route.
-            // Let's check if we can get user data.
-            // Actually, let's add /api/auth/me to routes.ts first or use an existing one.
-            // For now, I'll implement a simple fetch.
-
-            // Wait, the user added /api/auth/signup and signin which return { user }.
-            // We need a way to get the user on reload.
-            // Let's assume we'll add /api/users/:id or similar.
-            // For now, let's try to fetch from a hypothetical endpoint or just use what we have.
-            // The user's code in onboarding sets localStorage.
-
-            // Let's implement a fetch to /api/users/:id (we need to ensure this route exists or add it)
-            // I'll add fetching logic here, assuming the route will be available.
-
-            const res = await fetch(apiUrl(`/api/users/${userId}`));
-            if (res.ok) {
-                const data = await res.json();
-                setUser(data);
-            } else {
-                // If fetch fails (e.g. user deleted), clear storage
-                safeRemoveItem("userId");
-                setUser(null);
+            const profile = await getUserById(userId);
+            if (profile) {
+                setUser(profile as User);
             }
         } catch (error) {
-            console.error("Failed to fetch user", error);
-        } finally {
-            setIsLoading(false);
+            console.error("Failed to fetch user profile:", error);
         }
     };
 
+    // Initialize auth state
     useEffect(() => {
-        refreshUser();
+        // Get initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            setSupabaseUser(session?.user ?? null);
+            if (session?.user) {
+                fetchUserProfile(session.user.id);
+            }
+            setIsLoading(false);
+        });
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+                console.log("Auth state changed:", event);
+                setSession(session);
+                setSupabaseUser(session?.user ?? null);
+
+                if (event === 'SIGNED_IN' && session?.user) {
+                    await fetchUserProfile(session.user.id);
+                } else if (event === 'SIGNED_OUT') {
+                    setUser(null);
+                    setLocation("/");
+                }
+            }
+        );
+
+        return () => subscription.unsubscribe();
     }, []);
+
+    const refreshUser = async () => {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+            await fetchUserProfile(authUser.id);
+        } else {
+            setUser(null);
+        }
+    };
 
     useEffect(() => {
         if (user?.language) {
             import("../lib/i18n").then((module) => {
                 module.default.changeLanguage(user.language);
-                // Also sync to localStorage to ensure persistence
                 try {
                     if (user.language) {
                         localStorage.setItem('sahkosh_language', user.language);
@@ -122,21 +108,29 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     const login = (userData: User) => {
         setUser(userData);
-        safeSetItem("userId", userData.id);
         setLocation("/home");
     };
 
-    const logout = () => {
-        setUser(null);
-        safeRemoveItem("userId");
-        setLocation("/");
-        toast({ title: "Logged out" });
+    const logout = async () => {
+        try {
+            await supabase.auth.signOut();
+            setUser(null);
+            setSupabaseUser(null);
+            setSession(null);
+            setLocation("/");
+            toast({ title: "Logged out" });
+        } catch (error) {
+            console.error("Logout error:", error);
+            toast({ title: "Logout failed", variant: "destructive" });
+        }
     };
 
     return (
         <UserContext.Provider
             value={{
                 user,
+                supabaseUser,
+                session,
                 isLoading,
                 familyType: user?.familyType || null,
                 login,
