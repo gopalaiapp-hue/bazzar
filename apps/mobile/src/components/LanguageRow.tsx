@@ -9,8 +9,14 @@ export const LanguageRow: React.FC = () => {
     const { t } = useTranslation();
     const { language } = useLanguage();
     const [modalVisible, setModalVisible] = useState(false);
+    const [currentLanguage, setCurrentLanguage] = useState(language);
 
-    const currentLangName = LANGUAGES.find(l => l.code === language)?.name || 'English';
+    // Update current language when the global language changes
+    React.useEffect(() => {
+        setCurrentLanguage(language);
+    }, [language]);
+
+    const currentLangName = LANGUAGES.find(l => l.code === currentLanguage)?.name || 'English';
 
     return (
         <>

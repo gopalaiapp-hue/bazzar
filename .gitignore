@@ -7,3 +7,12 @@ vite.config.ts.*
 .env
 .env.local
 .env.*.local
+
+# Android build artifacts
+android/app/build
+android/app/release
+android/build
+android/.gradle
+*.keystore
+keystore.properties
+mapping.txt

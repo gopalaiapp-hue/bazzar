@@ -38,6 +38,9 @@
       ],
       "@shared/*": [
         "./shared/*"
+      ],
+      "@assets/*": [
+        "./attached_assets/*"
       ]
     }
   }

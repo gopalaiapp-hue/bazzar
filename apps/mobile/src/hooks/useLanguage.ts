@@ -19,12 +19,9 @@ export function useLanguage() {
 
     const setLanguage = async (code: LangCode) => {
         const oldLang = language;
-        await setPersistedLanguage(code);
-        // Analytics is already handled in setPersistedLanguage, but per requirements:
-        // "setLanguage should call setPersistedLanguage and analytics.track"
-        // In i18n.ts I added analytics.track inside setPersistedLanguage.
-        // So I don't need to duplicate it here, or I can remove it from i18n.ts.
-        // I'll keep it in i18n.ts for consistency if called directly.
+        if (oldLang !== code) {
+            await setPersistedLanguage(code);
+        }
     };
 
     return { language, setLanguage };

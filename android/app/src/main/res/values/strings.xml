@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SahKosh</string>
+    <string name="title_activity_main">SahKosh</string>
+    <string name="package_name">com.sahkosh.app</string>
+    <string name="custom_url_scheme">com.sahkosh.app</string>
+</resources>

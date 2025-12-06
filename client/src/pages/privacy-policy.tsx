@@ -28,7 +28,7 @@ export default function PrivacyPolicy() {
                     <section className="space-y-3">
                         <h2 className="text-lg font-bold">1. Introduction</h2>
                         <p className="text-sm text-gray-700">
-                            BazaarBudget ("we", "us", "our") values your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website.
+                            Shakosh ("we", "us", "our") values your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website.
                         </p>
                     </section>
 
@@ -129,7 +129,7 @@ export default function PrivacyPolicy() {
                     <section className="space-y-3">
                         <h2 className="text-lg font-bold">10. Children's Privacy</h2>
                         <p className="text-sm text-gray-700">
-                            BazaarBudget is not intended for children under 13. We do not knowingly collect data from children under 13. If we discover we have collected such data, we will delete it immediately.
+                            SahKosh is not intended for children under 13. We do not knowingly collect data from children under 13. If we discover we have collected such data, we will delete it immediately.
                         </p>
                     </section>
 
@@ -141,7 +141,7 @@ export default function PrivacyPolicy() {
                         </p>
                         <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
                             <p><strong>Email:</strong> niteshjha.uiux@yahoo.com</p>
-                            <p><strong>Address:</strong> BazaarBudget, Mumbai, India</p>
+                            <p><strong>Address:</strong> SahKosh, Mumbai, India</p>
                         </div>
                     </section>
 
@@ -149,13 +149,13 @@ export default function PrivacyPolicy() {
                     <section className="space-y-3">
                         <h2 className="text-lg font-bold">12. Changes to This Policy</h2>
                         <p className="text-sm text-gray-700">
-                            We may update this policy periodically. We will notify you of significant changes via email or app notification. Your continued use of BazaarBudget constitutes acceptance of the updated policy.
+                            We may update this policy periodically. We will notify you of significant changes via email or app notification. Your continued use of SahKosh constitutes acceptance of the updated policy.
                         </p>
                     </section>
 
                     {/* Download Links */}
                     <section className="space-y-4 mt-8 pt-8 border-t border-gray-200">
-                        <h2 className="text-lg font-bold">Get BazaarBudget</h2>
+                        <h2 className="text-lg font-bold">Get SahKosh</h2>
                         <div className="space-y-3">
                             <a
                                 href="https://play.google.com/store/apps/details?id=com.bazaarbudget.mobile"
@@ -180,7 +180,7 @@ export default function PrivacyPolicy() {
                             </a>
 
                             <a
-                                href="https://www.bazaarbudget.in"
+                                href="https://hightech-lame-data--nitesh44.replit.app"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="block"
@@ -194,7 +194,7 @@ export default function PrivacyPolicy() {
 
                     {/* Footer */}
                     <div className="text-center text-xs text-gray-400 pt-8">
-                        <p>© 2025 BazaarBudget. All rights reserved.</p>
+                        <p>© 2025 SahKosh. All rights reserved.</p>
                         <p className="mt-1">Made with ❤️ for Indian families</p>
                     </div>
                 </div>

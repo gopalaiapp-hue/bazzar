@@ -7,9 +7,17 @@
     "dev:client": "vite dev --port 5000",
     "dev": "tsx server/index.ts",
     "build": "tsx script/build.ts",
+    "build:web": "vite build",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "cap:init": "cap init",
+    "cap:sync": "npm run build:web && cap sync",
+    "cap:android": "cap open android",
+    "cap:add:android": "cap add android",
+    "android:build:debug": "cd android && ./gradlew assembleDebug",
+    "android:build:release": "cd android && ./gradlew assembleRelease",
+    "android:build:bundle": "cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -43,6 +51,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.60.5",
+    "@types/node-cron": "^3.0.11",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -62,6 +71,7 @@
     "lucide-react": "^0.545.0",
     "memorystore": "^1.6.7",
     "next-themes": "^0.4.6",
+    "node-cron": "^4.2.1",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "react": "^19.2.0",
@@ -79,7 +89,10 @@
     "wouter": "^3.3.5",
     "ws": "^8.18.0",
     "zod": "^3.25.76",
-    "zod-validation-error": "^3.4.0"
+    "zod-validation-error": "^3.4.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/android": "^6.0.0"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.4.4",

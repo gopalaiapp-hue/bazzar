@@ -10,6 +10,9 @@ type User = {
     onboardingStep: number;
     language?: string;
     settings?: any;
+    phone?: string | null;
+    role?: string;
+    profileImage?: string;
 };
 
 type UserContextType = {
@@ -29,8 +32,33 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const [, setLocation] = useLocation();
     const { toast } = useToast();
 
+    const safeGetItem = (key: string) => {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            console.warn("Storage access denied:", e);
+            return null;
+        }
+    };
+
+    const safeSetItem = (key: string, value: string) => {
+        try {
+            localStorage.setItem(key, value);
+        } catch (e) {
+            console.warn("Storage access denied:", e);
+        }
+    };
+
+    const safeRemoveItem = (key: string) => {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn("Storage access denied:", e);
+        }
+    };
+
     const refreshUser = async () => {
-        const userId = localStorage.getItem("userId");
+        const userId = safeGetItem("userId");
         if (!userId) {
             setIsLoading(false);
             return;
@@ -61,7 +89,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 setUser(data);
             } else {
                 // If fetch fails (e.g. user deleted), clear storage
-                localStorage.removeItem("userId");
+                safeRemoveItem("userId");
                 setUser(null);
             }
         } catch (error) {
@@ -79,19 +107,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         if (user?.language) {
             import("../lib/i18n").then((module) => {
                 module.default.changeLanguage(user.language);
+                // Also sync to localStorage to ensure persistence
+                try {
+                    if (user.language) {
+                        localStorage.setItem('sahkosh_language', user.language);
+                    }
+                } catch (e) {
+                    console.warn('Could not save language to localStorage:', e);
+                }
             });
         }
     }, [user]);
 
     const login = (userData: User) => {
         setUser(userData);
-        localStorage.setItem("userId", userData.id);
+        safeSetItem("userId", userData.id);
         setLocation("/home");
     };
 
     const logout = () => {
         setUser(null);
-        localStorage.removeItem("userId");
+        safeRemoveItem("userId");
         setLocation("/");
         toast({ title: "Logged out" });
     };

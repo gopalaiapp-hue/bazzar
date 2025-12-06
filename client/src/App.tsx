@@ -4,6 +4,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UserProvider } from "@/context/UserContext";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { NotificationProvider } from "@/context/NotificationContext";
+import { LockScreen } from "@/components/LockScreen";
 import "./lib/i18n"; // Initialize i18n
 import NotFound from "@/pages/not-found";
 
@@ -17,6 +20,8 @@ import PrivacyPolicy from "@/pages/privacy-policy";
 import LenaDena from "@/pages/lena-dena";
 import Budgets from "@/pages/budgets";
 import Couple from "@/pages/couple";
+import PocketDetails from "@/pages/pocket-details";
+import Subscriptions from "@/pages/subscriptions";
 
 function Router() {
   return (
@@ -31,6 +36,8 @@ function Router() {
       <Route path="/lenadena" component={LenaDena} />
       <Route path="/budgets" component={Budgets} />
       <Route path="/couple" component={Couple} />
+      <Route path="/pocket/:id" component={PocketDetails} />
+      <Route path="/subscriptions" component={Subscriptions} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -44,7 +51,13 @@ function App() {
       <TooltipProvider>
         <Toaster />
         <UserProvider>
-          <Router />
+          <ThemeProvider>
+            <NotificationProvider>
+              <LockScreen>
+                <Router />
+              </LockScreen>
+            </NotificationProvider>
+          </ThemeProvider>
         </UserProvider>
       </TooltipProvider>
     </QueryClientProvider>
@@ -52,3 +65,4 @@ function App() {
 }
 
 export default App;
+

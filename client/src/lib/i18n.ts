@@ -44,10 +44,21 @@ i18n
         detection: {
             order: ['localStorage', 'navigator'],
             caches: ['localStorage'],
+            lookupLocalStorage: 'sahkosh_language', // Custom key for our app
         },
         react: {
             useSuspense: false,
         },
     });
 
+// Hook to update localStorage when language changes
+i18n.on('languageChanged', (lng) => {
+    try {
+        localStorage.setItem('sahkosh_language', lng);
+    } catch (e) {
+        console.warn('Could not save language to localStorage:', e);
+    }
+});
+
 export default i18n;
+

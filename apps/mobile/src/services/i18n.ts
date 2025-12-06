@@ -145,8 +145,10 @@ export const loadPersistedLanguage = async (): Promise<string> => {
 export const setPersistedLanguage = async (code: LangCode): Promise<void> => {
     const oldLang = i18n.language;
     try {
-        await i18n.changeLanguage(code);
-        analytics.track('language_changed', { from: oldLang, to: code });
+        if (oldLang !== code) {
+            await i18n.changeLanguage(code);
+            analytics.track('language_changed', { from: oldLang, to: code });
+        }
     } catch (error) {
         console.error('Failed to set language', error);
         throw error;

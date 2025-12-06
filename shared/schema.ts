@@ -27,6 +27,9 @@ export const users = pgTable("users", {
   onboardingComplete: boolean("onboarding_complete").default(false),
   settings: jsonb("settings").default({}),
   createdAt: timestamp("created_at").defaultNow(),
+  role: text("role").default("admin"), // 'admin' or 'member'
+  linkedAdminId: text("linked_admin_id"), // references users.id
+  lastActiveAt: timestamp("last_active_at"),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
@@ -47,6 +50,41 @@ export const insertOtpSchema = createInsertSchema(otps).omit({ id: true, created
 export type InsertOtp = z.infer<typeof insertOtpSchema>;
 export type Otp = typeof otps.$inferSelect;
 
+// Invite Codes Table (one per HoF, never expires)
+export const inviteCodes = pgTable("invite_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  creatorId: text("creator_id").references(() => users.id).notNull(),
+  familyName: text("family_name"), // optional family name
+  autoAccept: boolean("auto_accept").default(false), // if true, auto-approve joins
+  status: text("status").default("active"), // 'active', 'revoked'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInviteCodeSchema = createInsertSchema(inviteCodes).omit({ id: true, createdAt: true });
+export type InsertInviteCode = z.infer<typeof insertInviteCodeSchema>;
+export type InviteCode = typeof inviteCodes.$inferSelect;
+
+// Join Requests Table (for family join approval flow)
+export const joinRequests = pgTable("join_requests", {
+  id: serial("id").primaryKey(),
+  inviteCode: text("invite_code").notNull(),
+  requesterId: text("requester_id").references(() => users.id).notNull(),
+  requesterName: text("requester_name").notNull(),
+  requesterPhone: text("requester_phone"),
+  requesterEmail: text("requester_email"),
+  message: text("message"), // optional message to HoF
+  status: text("status").default("pending"), // 'pending', 'approved', 'rejected'
+  hofId: text("hof_id").references(() => users.id).notNull(), // Head of Family
+  actionNote: text("action_note"), // HoF's note on approve/reject
+  actionAt: timestamp("action_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertJoinRequestSchema = createInsertSchema(joinRequests).omit({ id: true, createdAt: true, actionAt: true });
+export type InsertJoinRequest = z.infer<typeof insertJoinRequestSchema>;
+export type JoinRequest = typeof joinRequests.$inferSelect;
+
 // Accounts Table
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
@@ -64,13 +102,19 @@ export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true,
 export type InsertAccount = z.infer<typeof insertAccountSchema>;
 export type Account = typeof accounts.$inferSelect;
 
-// Pockets Table
+// Pockets Table (Enhanced with Goals and Spending)
 export const pockets = pgTable("pockets", {
   id: serial("id").primaryKey(),
   userId: text("user_id").references(() => users.id).notNull(),
   type: pocketTypeEnum("type").notNull(),
   name: text("name").notNull(),
-  amount: integer("amount").default(0),
+  amount: integer("amount").default(0), // Current balance
+  spent: integer("spent").default(0), // Amount spent from this pocket
+  targetAmount: integer("target_amount"), // For savings goals
+  deadline: timestamp("deadline"), // For savings goals
+  monthlyContribution: integer("monthly_contribution"), // Suggested monthly save
+  linkedCategories: text("linked_categories").array().default(sql`ARRAY[]::text[]`), // Auto-deduct categories
+  icon: text("icon").default("💰"), // Custom emoji icon
   color: text("color").default("bg-blue-500"),
   isHidden: boolean("is_hidden").default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -196,3 +240,37 @@ export const taxData = pgTable("tax_data", {
 export const insertTaxDataSchema = createInsertSchema(taxData).omit({ id: true, updatedAt: true });
 export type InsertTaxData = z.infer<typeof insertTaxDataSchema>;
 export type TaxData = typeof taxData.$inferSelect;
+
+// Pocket Transfers Table (for moving money between pockets)
+export const pocketTransfers = pgTable("pocket_transfers", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  fromPocketId: integer("from_pocket_id").references(() => pockets.id).notNull(),
+  toPocketId: integer("to_pocket_id").references(() => pockets.id).notNull(),
+  amount: integer("amount").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPocketTransferSchema = createInsertSchema(pocketTransfers).omit({ id: true, createdAt: true });
+export type InsertPocketTransfer = z.infer<typeof insertPocketTransferSchema>;
+export type PocketTransfer = typeof pocketTransfers.$inferSelect;
+
+// Subscriptions Table (recurring subscription tracker)
+export const subscriptions = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(), // e.g. "Netflix", "Spotify"
+  amount: integer("amount").notNull(), // Monthly cost in paise/rupees
+  dueDate: integer("due_date"), // Day of month (1-31)
+  category: text("category"), // streaming, music, gym, etc.
+  icon: text("icon").default("📺"), // Emoji icon
+  isActive: boolean("is_active").default(true),
+  reminderDays: integer("reminder_days").default(3), // Days before to remind
+  notifyOnRenewal: boolean("notify_on_renewal").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true });
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+export type Subscription = typeof subscriptions.$inferSelect;

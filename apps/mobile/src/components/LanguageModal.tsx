@@ -21,8 +21,14 @@ export const LanguageModal: React.FC<LanguageModalProps> = ({ visible, onClose }
     }, [visible, language]);
 
     const handleSave = async () => {
-        await setLanguage(selectedLang);
-        onClose();
+        try {
+            await setLanguage(selectedLang);
+            // Wait for language change to complete before closing
+            await new Promise(resolve => setTimeout(resolve, 100));
+            onClose();
+        } catch (error) {
+            console.error('Failed to save language:', error);
+        }
     };
 
     const renderItem = ({ item }: { item: typeof LANGUAGES[0] }) => {

@@ -2,10 +2,11 @@ import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { PocketCard } from "@/components/ui/pocket-card";
-import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X } from "lucide-react";
+import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { motion } from "framer-motion";
@@ -97,6 +98,14 @@ export default function Home() {
   const [newPocketName, setNewPocketName] = useState("");
   const [newPocketAmount, setNewPocketAmount] = useState("");
   const [newPocketType, setNewPocketType] = useState("cash");
+  const [newPocketTarget, setNewPocketTarget] = useState("");
+  const [newPocketDeadline, setNewPocketDeadline] = useState("");
+  const [newPocketIcon, setNewPocketIcon] = useState("💰");
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [transferFrom, setTransferFrom] = useState<number | null>(null);
+  const [transferTo, setTransferTo] = useState<number | null>(null);
+  const [transferAmount, setTransferAmount] = useState("");
+
 
   const [formData, setFormData] = useState({
     type: "debit",
@@ -281,25 +290,87 @@ export default function Home() {
       return;
     }
     try {
+      const pocketData: any = {
+        userId,
+        name: newPocketName,
+        amount: parseInt(newPocketAmount),
+        type: newPocketType,
+        icon: newPocketIcon,
+        color: newPocketType === "savings" ? "bg-emerald-500" : "bg-blue-500"
+      };
+
+      // Add goal fields if it's a savings pocket
+      if (newPocketType === "savings" && newPocketTarget) {
+        pocketData.targetAmount = parseInt(newPocketTarget);
+        if (newPocketDeadline) {
+          pocketData.deadline = new Date(newPocketDeadline).toISOString();
+        }
+      }
+
       const res = await fetch("/api/pockets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          name: newPocketName,
-          amount: parseInt(newPocketAmount),
-          type: newPocketType,
-          color: "bg-blue-500" // Default color
-        })
+        body: JSON.stringify(pocketData)
       });
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ["pockets"] });
         setAddPocketOpen(false);
         setNewPocketName("");
         setNewPocketAmount("");
+        setNewPocketTarget("");
+        setNewPocketDeadline("");
+        setNewPocketIcon("💰");
         toast({ title: "Pocket Added" });
       } else {
         toast({ title: "Failed", description: "Could not add pocket", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
+  const handleTransfer = async () => {
+    if (!transferFrom || !transferTo || !transferAmount) {
+      toast({ title: "Missing fields", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/pockets/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          fromPocketId: transferFrom,
+          toPocketId: transferTo,
+          amount: parseInt(transferAmount)
+        })
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["pockets"] });
+        setShowTransferDialog(false);
+        setTransferFrom(null);
+        setTransferTo(null);
+        setTransferAmount("");
+        toast({ title: "Transfer Complete" });
+      } else {
+        const data = await res.json();
+        toast({ title: "Transfer Failed", description: data.error, variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
+  const handleAddMoneyToPocket = async (pocketId: number, amount: number) => {
+    try {
+      const res = await fetch(`/api/pockets/${pocketId}/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount })
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: ["pockets"] });
+        toast({ title: "Money Added", description: `₹${amount} added to pocket` });
       }
     } catch (e) {
       toast({ title: "Error", variant: "destructive" });
@@ -590,7 +661,14 @@ export default function Home() {
         <section>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold">{t('home.myPockets')}</h2>
-            <Button variant="ghost" size="sm" className="text-primary h-8 px-2 text-xs font-medium" onClick={() => toast({ title: t('common.comingSoon'), description: t('common.featureUnderDevelopment') })}>{t('home.manage')}</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-primary h-8 px-2 text-xs font-medium"
+              onClick={() => setShowTransferDialog(true)}
+            >
+              Transfer
+            </Button>
           </div>
           {pocketsLoading ? (
             <div className="flex justify-center items-center py-8">
@@ -599,46 +677,200 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-2 gap-4">
               {pockets.map((pocket) => (
-                <PocketCard key={pocket.id} {...pocket} id={String(pocket.id)} />
+                <PocketCard
+                  key={pocket.id}
+                  id={String(pocket.id)}
+                  name={pocket.name}
+                  type={pocket.type}
+                  amount={pocket.amount || 0}
+                  spent={pocket.spent || 0}
+                  targetAmount={pocket.targetAmount || undefined}
+                  deadline={pocket.deadline?.toString()}
+                  monthlyContribution={pocket.monthlyContribution || undefined}
+                  icon={pocket.icon || undefined}
+                  color={pocket.color || "bg-blue-500"}
+                  onAddMoney={(amount) => handleAddMoneyToPocket(pocket.id, amount)}
+                  onTransfer={() => {
+                    setTransferFrom(pocket.id);
+                    setShowTransferDialog(true);
+                  }}
+                  onClick={() => setLocation(`/pocket/${pocket.id}`)}
+                />
               ))}
               <Dialog open={addPocketOpen} onOpenChange={setAddPocketOpen}>
                 <DialogTrigger asChild>
-                  <button className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[140px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                  <button className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[160px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors">
                     <Plus className="w-6 h-6 mb-2" />
                     <span className="text-xs font-medium">Add Pocket</span>
                   </button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>{t('home.addNewPocket')}</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
+                    {/* Icon Selector */}
+                    <div className="space-y-2">
+                      <Label>Icon</Label>
+                      <div className="flex gap-2 flex-wrap">
+                        {["💰", "🏦", "💳", "✈️", "🏠", "🚗", "📱", "🎯", "💍", "🎓", "🛒", "⚡"].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => setNewPocketIcon(emoji)}
+                            className={cn(
+                              "w-10 h-10 rounded-lg text-xl border-2 transition-all",
+                              newPocketIcon === emoji ? "border-primary bg-primary/10" : "border-gray-200"
+                            )}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <Label>{t('home.pocketName')}</Label>
                       <Input placeholder="e.g. Vacation Fund" value={newPocketName} onChange={(e) => setNewPocketName(e.target.value)} />
                     </div>
                     <div className="space-y-2">
-                      <Label>{t('home.amount')}</Label>
+                      <Label>Starting Balance</Label>
                       <Input type="number" placeholder="0" value={newPocketAmount} onChange={(e) => setNewPocketAmount(e.target.value)} />
                     </div>
                     <div className="space-y-2">
                       <Label>{t('home.type')}</Label>
                       <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={newPocketType} onChange={(e) => setNewPocketType(e.target.value)}>
-                        <option value="cash">Cash</option>
-                        <option value="bank">Bank</option>
-                        <option value="upi">UPI</option>
-                        <option value="savings">Savings</option>
+                        <option value="cash">💵 Cash</option>
+                        <option value="bank">🏦 Bank Account</option>
+                        <option value="upi">📱 UPI Wallet</option>
+                        <option value="savings">🎯 Savings Goal</option>
                       </select>
                     </div>
+
+                    {/* Savings Goal Fields */}
+                    {newPocketType === "savings" && (
+                      <div className="bg-emerald-50 p-4 rounded-lg space-y-3 border border-emerald-100">
+                        <p className="text-xs text-emerald-700 font-medium">🎯 Savings Goal Settings</p>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Target Amount</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g. 50000"
+                            value={newPocketTarget}
+                            onChange={(e) => setNewPocketTarget(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Target Date</Label>
+                          <Input
+                            type="date"
+                            value={newPocketDeadline}
+                            onChange={(e) => setNewPocketDeadline(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setAddPocketOpen(false)}>{t('home.cancel')}</Button>
-                    <Button onClick={handleAddPocket}>{t('home.createPocket')}</Button>
+                    <Button onClick={handleAddPocket} className={newPocketType === "savings" ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                      {t('home.createPocket')}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
             </div>
           )}
+
+          {/* Transfer Dialog */}
+          <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Transfer Between Pockets</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>From Pocket</Label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={transferFrom || ""}
+                    onChange={(e) => setTransferFrom(parseInt(e.target.value))}
+                  >
+                    <option value="">Select source</option>
+                    {pockets.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.icon || "💰"} {p.name} (₹{(p.amount || 0).toLocaleString()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>To Pocket</Label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={transferTo || ""}
+                    onChange={(e) => setTransferTo(parseInt(e.target.value))}
+                  >
+                    <option value="">Select destination</option>
+                    {pockets.filter(p => p.id !== transferFrom).map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.icon || "💰"} {p.name} (₹{(p.amount || 0).toLocaleString()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Amount</Label>
+                  <Input
+                    type="number"
+                    placeholder="1000"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowTransferDialog(false)}>Cancel</Button>
+                <Button onClick={handleTransfer} className="bg-blue-600 hover:bg-blue-700">
+                  Transfer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </section>
+
+        {/* Quick Access Cards */}
+        <section>
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-bold">Quick Access</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Subscriptions Card */}
+            <button
+              onClick={() => setLocation("/subscriptions")}
+              className="bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-2xl text-white text-left hover:from-purple-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg group"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="font-bold text-sm">Subscriptions</p>
+              <p className="text-[10px] opacity-80">Track Netflix, Spotify...</p>
+            </button>
+
+            {/* Goals Card */}
+            <button
+              onClick={() => setLocation("/goals")}
+              className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-4 rounded-2xl text-white text-left hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg group"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                  <span className="text-lg">🎯</span>
+                </div>
+              </div>
+              <p className="font-bold text-sm">Goals</p>
+              <p className="text-[10px] opacity-80">Save for your dreams</p>
+            </button>
+          </div>
         </section>
 
         {/* Transaction History */}
@@ -659,9 +891,26 @@ export default function Home() {
               <Button variant="ghost" size="icon" className={cn("h-8 w-8", showSearch && "bg-gray-100")} onClick={() => setShowSearch(!showSearch)}>
                 <Search className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8", filterType !== "all" && "text-primary bg-primary/10")} onClick={() => setFilterType(current => current === "all" ? "debit" : current === "debit" ? "credit" : "all")}>
-                <Filter className="w-4 h-4" />
-              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className={cn("h-8 w-8", filterType !== "all" && "text-primary bg-primary/10")}>
+                    <Filter className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setFilterType("all")}>
+                    All Transactions
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterType("debit")}>
+                    Expenses Only
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterType("credit")}>
+                    Income Only
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               {filterType !== "all" && <span className="text-[10px] font-bold text-primary uppercase">{filterType}</span>}
             </div>
           </div>
