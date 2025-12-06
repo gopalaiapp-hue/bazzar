@@ -19,22 +19,20 @@ android {
     
     signingConfigs {
         release {
-            // You can define keystore properties here or use a keystore.properties file
-            // For now, using debug key. Replace with your release keystore.
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            // Using debug signing for now
+            // TODO: Add production keystore
         }
     }
     
     buildTypes {
         release {
-            // ProGuard obfuscation enabled
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // Obfuscation disabled temporarily to fix build
+            // TODO: Re-enable after first successful build
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Use debug signing for now
+            signingConfig signingConfigs.debug
         }
     }
 }
