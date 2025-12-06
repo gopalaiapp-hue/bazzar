@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "@/context/UserContext";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import { Eye, EyeOff, LockKeyhole, AlertCircle } from "lucide-react";
+import { apiUrl } from "@/lib/api-config";
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
@@ -86,7 +87,7 @@ export default function Onboarding() {
         ? { email, password, name, inviteCode }
         : { email, password };
 
-      const res = await fetch(endpoint, {
+      const res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -136,7 +137,7 @@ export default function Onboarding() {
     if (!inviteCode || inviteCode.length < 8) return;
 
     try {
-      const res = await fetch("/api/auth/invite/validate", {
+      const res = await fetch(apiUrl("/api/auth/invite/validate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: inviteCode }),
@@ -164,7 +165,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/signin", {
+      const res = await fetch(apiUrl("/api/auth/signin"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -215,7 +216,7 @@ export default function Onboarding() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/onboarding/step1", {
+      const res = await fetch(apiUrl("/api/onboarding/step1"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, name }),
@@ -240,7 +241,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/onboarding/step2", {
+      const res = await fetch(apiUrl("/api/onboarding/step2"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, familyType }),
@@ -265,7 +266,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/onboarding/step3", {
+      const res = await fetch(apiUrl("/api/onboarding/step3"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, incomeSources }),
@@ -297,7 +298,7 @@ export default function Onboarding() {
   const handleSaveFamilyType = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/onboarding/link-bank", {
+      const res = await fetch(apiUrl("/api/onboarding/link-bank"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
@@ -332,7 +333,7 @@ export default function Onboarding() {
   const handleGenerateInvite = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/invite/generate", {
+      const res = await fetch(apiUrl("/api/auth/invite/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
@@ -354,7 +355,7 @@ export default function Onboarding() {
   const handleLinkBank = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/onboarding/link-bank", {
+      const res = await fetch(apiUrl("/api/onboarding/link-bank"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),

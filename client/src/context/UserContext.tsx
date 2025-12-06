@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { apiUrl } from "@/lib/api-config";
 
 type User = {
     id: string;
@@ -83,7 +84,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             // Let's implement a fetch to /api/users/:id (we need to ensure this route exists or add it)
             // I'll add fetching logic here, assuming the route will be available.
 
-            const res = await fetch(`/api/users/${userId}`);
+            const res = await fetch(apiUrl(`/api/users/${userId}`));
             if (res.ok) {
                 const data = await res.json();
                 setUser(data);
