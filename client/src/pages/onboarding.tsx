@@ -84,9 +84,15 @@ export default function Onboarding() {
     setLoading(true);
     try {
       // Sign up with Supabase Auth
+      // The database trigger will auto-create the user profile in the users table
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            name: isMember ? name : undefined,
+          }
+        }
       });
 
       if (authError) throw authError;
@@ -95,16 +101,18 @@ export default function Onboarding() {
       const newUserId = authData.user.id;
       setUserId(newUserId);
 
-      // Create user profile in our users table
-      await createUserProfile({
-        id: newUserId,
-        email,
-        name: isMember ? name : null,
-        role: isMember ? 'member' : 'admin',
-        linked_admin_id: isMember && inviteValid ? adminName : null, // Will be updated with actual ID
-        onboarding_step: isMember ? 99 : 0,
-        onboarding_complete: isMember,
-      });
+      // Wait a moment for the trigger to create the profile
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // If member, update the profile with member-specific info
+      if (isMember && inviteValid) {
+        await updateUser(newUserId, {
+          name,
+          role: 'member',
+          onboarding_step: 99,
+          onboarding_complete: true,
+        });
+      }
 
       await refreshUser();
 
@@ -116,7 +124,7 @@ export default function Onboarding() {
     } catch (error: any) {
       console.error("Signup error:", error);
       let errorMessage = error.message || "Signup failed";
-      if (errorMessage.includes("already registered")) {
+      if (errorMessage.includes("already registered") || errorMessage.includes("already been registered")) {
         errorMessage = "Email already registered. Please sign in instead.";
       }
       toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
