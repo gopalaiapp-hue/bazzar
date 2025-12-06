@@ -1,4 +1,4 @@
-name: Neon to Supabase Migration (Staging)
+name: Neon to Supabase Migration (Staging) [v2 FIXED]
 
 on:
   workflow_dispatch:
