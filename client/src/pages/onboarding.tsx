@@ -9,7 +9,7 @@ import { useUser } from "@/context/UserContext";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import { Eye, EyeOff, LockKeyhole, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { createUserProfile, updateUser, validateInviteCode as validateInviteCodeApi, createInviteCode, getInviteCodeByCreator } from "@/lib/supabaseApi";
+import { createUserProfile, updateUser, validateInviteCode as validateInviteCodeApi, createInviteCode, getInviteCodeByCreator, resetPasswordForEmail } from "@/lib/supabaseApi";
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
@@ -367,25 +367,19 @@ export default function Onboarding() {
                       console.log("Sending password reset request for:", forgotPasswordEmail);
 
                       // Call real API endpoint
-                      const res = await fetch("/api/auth/forgot-password", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ email: forgotPasswordEmail }),
-                      });
+                      await resetPasswordForEmail(forgotPasswordEmail);
 
-                      if (res.ok) {
-                        setForgotPasswordSuccess(true);
-                        toast({ title: "Success", description: "Password reset link sent to your email" });
-                      } else {
-                        const data = await res.json();
-                        throw new Error(data.error || "Failed to send reset link");
-                      }
+                      setForgotPasswordSuccess(true);
+                      toast({ title: "Success", description: "Password reset link sent to your email" });
+
                     } catch (error) {
                       console.error("Forgot password error:", error);
                       let errorMessage = "Failed to send reset link";
                       if (error instanceof Error) {
                         errorMessage = error.message.includes("Failed to fetch") ? "Network error - please check your connection" : error.message;
                       }
+                      console.error("Reset error:", error);
+
                       toast({ title: "Error", description: errorMessage, variant: "destructive" });
                     } finally {
                       setForgotPasswordLoading(false);

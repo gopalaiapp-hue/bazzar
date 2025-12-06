@@ -20,6 +20,13 @@ export async function signOut() {
     if (error) throw new Error(error.message);
 }
 
+export async function resetPasswordForEmail(email: string) {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: 'https://bazaarbudget.app/reset-password', // Deep link will be handled by app
+    });
+    if (error) throw new Error(error.message);
+}
+
 export async function getCurrentUser() {
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error) throw new Error(error.message);
