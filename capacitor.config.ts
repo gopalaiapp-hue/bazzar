@@ -6,8 +6,7 @@ const config: CapacitorConfig = {
     webDir: 'dist/public',
     server: {
         androidScheme: 'https',
-        // Point to your backend server for API calls
-        url: 'https://hightech-lame-data--nitesh44.replit.app',
+        // Removed remote URL - app now loads from bundled dist/public
         cleartext: false
     },
     android: {
