@@ -21,16 +21,38 @@ if [ -z "$SUPABASE_DB_URL" ]; then
     exit 1
 fi
 
-if [ -z "$BACKUP_DIR" ]; then
-    echo "⚠️  BACKUP_DIR not set, using latest backup..."
-    BACKUP_DIR=$(ls -td migration-backups/*/ | head -1)
-    echo "📁 Using: $BACKUP_DIR"
+# Determine Backup Directory
+if [ -n "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/neon_full_backup.dump" ]; then
+    echo "📁 Using configured BACKUP_DIR: $BACKUP_DIR"
+else
+    if [ -n "$BACKUP_DIR" ]; then
+        echo "⚠️  Configured BACKUP_DIR ($BACKUP_DIR) not found or invalid."
+    fi
+     
+    echo "🔍 Searching for latest valid backup..."
+    
+    # Iterate through directories ordered by time (newest first)
+    # and find the first one that contains the dump file
+    FOUND_BACKUP=""
+    for dir in $(ls -td migration-backups/*/ 2>/dev/null); do
+        if [ -f "${dir}neon_full_backup.dump" ]; then
+            FOUND_BACKUP="${dir%/}" # Remove trailing slash if present
+            echo "   Found valid backup in: $FOUND_BACKUP"
+            break
+        else
+            echo "   Skipping empty/invalid directory: $dir"
+        fi
+    done
+    
+    if [ -n "$FOUND_BACKUP" ]; then
+        BACKUP_DIR="$FOUND_BACKUP"
+    fi
 fi
 
-# Verify backup files exist
-if [ ! -f "$BACKUP_DIR/neon_full_backup.dump" ]; then
-    echo "❌ Error: Backup file not found: $BACKUP_DIR/neon_full_backup.dump"
-    echo "Run export-from-neon.sh first!"
+# Verify we have a valid backup
+if [ -z "$BACKUP_DIR" ] || [ ! -f "$BACKUP_DIR/neon_full_backup.dump" ]; then
+    echo "❌ Error: No valid backup found in migration-backups/"
+    echo "   Run export-from-neon.sh first!"
     exit 1
 fi
 

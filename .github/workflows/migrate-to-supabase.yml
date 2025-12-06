@@ -32,8 +32,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name:  Export Neon Database
+      - name: Export Neon Database
         if: ${{ !github.event.inputs.skip_backup }}
+        shell: bash
         env:
           NEON_DB_URL: ${{ secrets.NEON_DB_URL }}
         run: |
@@ -49,12 +50,12 @@ jobs:
           retention-days: 90
 
       - name: Import to Supabase
+        shell: bash
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          BACKUP_DIR: migration-backups/latest
         run: |
           chmod +x scripts/import-to-supabase.sh
-          # Auto-confirm for CI
+          # Auto-confirm the destructive action
           echo "yes" | ./scripts/import-to-supabase.sh
 
       - name: Verify Migration
