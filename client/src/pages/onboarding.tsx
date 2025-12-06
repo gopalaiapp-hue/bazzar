@@ -70,6 +70,7 @@ export default function Onboarding() {
     return Math.min(strength, 4);
   };
 
+
   const handleSignup = async () => {
     if (!email || !password) {
       toast({ title: "Invalid", description: "Enter email and password", variant: "destructive" });
@@ -97,6 +98,17 @@ export default function Onboarding() {
 
       if (authError) throw authError;
       if (!authData.user) throw new Error("Signup failed - no user returned");
+
+      // CHECK FOR SESSION: If email confirmation is ON, session will be null
+      if (!authData.session) {
+        toast({
+          title: "Check your email",
+          description: "Please click the confirmation link sent to your email to complete signup.",
+          duration: 6000
+        });
+        // We cannot proceed to onboarding until they verify
+        return;
+      }
 
       const newUserId = authData.user.id;
       setUserId(newUserId);
