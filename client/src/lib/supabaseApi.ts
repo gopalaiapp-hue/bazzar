@@ -38,12 +38,31 @@ export async function getUserById(userId: string) {
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
     if (error) throw new Error(error.message);
     return data;
 }
 
 export async function updateUser(userId: string, updates: any) {
+    // First try to update
+    const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (!existing) {
+        // User doesn't exist, create with updates
+        const { data, error } = await supabase
+            .from('users')
+            .insert([{ id: userId, ...updates }])
+            .select()
+            .single();
+        if (error) throw new Error(error.message);
+        return data;
+    }
+
+    // User exists, update
     const { data, error } = await supabase
         .from('users')
         .update(updates)
@@ -57,7 +76,7 @@ export async function updateUser(userId: string, updates: any) {
 export async function createUserProfile(profile: any) {
     const { data, error } = await supabase
         .from('users')
-        .insert([profile])
+        .upsert([profile], { onConflict: 'id' })
         .select()
         .single();
     if (error) throw new Error(error.message);
