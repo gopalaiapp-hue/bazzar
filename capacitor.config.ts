@@ -5,7 +5,10 @@ const config: CapacitorConfig = {
     appName: 'SahKosh',
     webDir: 'dist/public',
     server: {
-        androidScheme: 'https'
+        androidScheme: 'https',
+        // Point to your backend server for API calls
+        url: 'https://hightech-lame-data--nitesh44.replit.app',
+        cleartext: false
     },
     android: {
         buildOptions: {
