@@ -9,6 +9,31 @@ export async function signUp(email: string, password: string) {
     return data;
 }
 
+export async function checkEmailExists(email: string): Promise<boolean> {
+    try {
+        // Try to sign in with a dummy password to check if email exists
+        // This is a workaround since Supabase doesn't provide direct email check
+        const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password: '__check_only__'
+        });
+
+        // If error message contains "Invalid", email exists but password wrong
+        if (error && error.message.toLowerCase().includes('invalid')) {
+            return true;
+        }
+
+        // If error says email not confirmed or other auth errors, email exists
+        if (error && !error.message.toLowerCase().includes('not found')) {
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        return false;
+    }
+}
+
 export async function signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
@@ -23,6 +48,17 @@ export async function signOut() {
 export async function resetPasswordForEmail(email: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: 'https://bazaarbudget.app/reset-password', // Deep link will be handled by app
+    });
+    if (error) throw new Error(error.message);
+}
+
+export async function resendVerificationEmail(email: string) {
+    const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+            emailRedirectTo: 'https://bazaarbudget.app/auth/callback'
+        }
     });
     if (error) throw new Error(error.message);
 }

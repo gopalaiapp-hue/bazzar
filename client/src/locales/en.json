@@ -187,5 +187,101 @@
         "profile": "Profile",
         "we": "We",
         "family": "Family"
+    },
+    "privacyPolicy": {
+        "title": "Privacy Policy",
+        "lastUpdated": "Last Updated",
+        "introduction": {
+            "heading": "1. Introduction",
+            "content": "Sahkosh (\"we\", \"us\", \"our\") values your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website."
+        },
+        "dataCollection": {
+            "heading": "2. Information We Collect",
+            "personalInfo": "Personal Information:",
+            "personalInfoDesc": "Phone number, name, email address, family details",
+            "financialData": "Financial Data:",
+            "financialDataDesc": "Transaction history, expense categories, payment methods (we do not store card details)",
+            "deviceInfo": "Device Information:",
+            "deviceInfoDesc": "Device ID, OS version, app version",
+            "usageData": "Usage Data:",
+            "usageDataDesc": "Features used, time spent, crash reports",
+            "photos": "Photos:",
+            "photosDesc": "Receipt images you voluntarily upload"
+        },
+        "dataUsage": {
+            "heading": "3. How We Use Your Information",
+            "feature1": "Provide core features: expense tracking, budgeting, family sharing",
+            "feature2": "Generate reports and analytics for your family",
+            "feature3": "Send transaction notifications and reminders",
+            "feature4": "Improve app performance and user experience",
+            "feature5": "Communicate updates and support messages",
+            "feature6": "Comply with legal obligations (tax filing, RBI regulations)"
+        },
+        "security": {
+            "heading": "4. Data Security",
+            "content": "We use industry-standard encryption (SSL/TLS) to protect your data during transmission. Your financial data is stored securely on encrypted servers with access controls and regular backups. However, no method of transmission over the internet is 100% secure."
+        },
+        "familySharing": {
+            "heading": "5. Family Data Sharing",
+            "content": "When you create a family group, you agree to share expense data with invited members. Each member can see shared transactions and family analytics based on their role and permissions. You can revoke access anytime."
+        },
+        "thirdParty": {
+            "heading": "6. Third-Party Services",
+            "intro": "We may integrate with third-party services for:",
+            "payment": "Payment processing (Stripe, Razorpay)",
+            "storage": "Cloud storage (Google Drive for backups)",
+            "analytics": "Analytics (Firebase, Mixpanel)",
+            "sms": "SMS delivery (Twilio)",
+            "disclaimer": "These services have their own privacy policies."
+        },
+        "userRights": {
+            "heading": "7. Your Rights",
+            "intro": "You have the right to:",
+            "access": "Access your personal data",
+            "correct": "Request corrections to inaccurate data",
+            "delete": "Request deletion of your account and data",
+            "export": "Export your data in standard format",
+            "withdraw": "Withdraw consent at any time"
+        },
+        "dataRetention": {
+            "heading": "8. Data Retention",
+            "content": "We retain transaction data for 7 years (as per Indian tax regulations). After account deletion, your data is purged within 30 days, except where legally required to retain."
+        },
+        "compliance": {
+            "heading": "9. Compliance with Regulations",
+            "intro": "We comply with:",
+            "gdpr": "GDPR:",
+            "gdprDesc": "If you're in EU",
+            "ccpa": "CCPA:",
+            "ccpaDesc": "If you're in California",
+            "india": "India's Digital Personal Data Protection Act, 2023",
+            "rbi": "RBI Guidelines:",
+            "rbiDesc": "For financial data handling"
+        },
+        "childrenPrivacy": {
+            "heading": "10. Children's Privacy",
+            "content": "SahKosh is not intended for children under 13. We do not knowingly collect data from children under 13. If we discover we have collected such data, we will delete it immediately."
+        },
+        "contact": {
+            "heading": "11. Contact Us",
+            "intro": "If you have privacy concerns or requests:",
+            "email": "Email:",
+            "address": "Address:",
+            "addressValue": "SahKosh, Mumbai, India"
+        },
+        "changes": {
+            "heading": "12. Changes to This Policy",
+            "content": "We may update this policy periodically. We will notify you of significant changes via email or app notification. Your continued use of SahKosh constitutes acceptance of the updated policy."
+        },
+        "download": {
+            "heading": "Get SahKosh",
+            "playStore": "📱 Download on Google Play Store",
+            "appStore": "🍎 Download on Apple App Store",
+            "website": "🌐 Visit Website"
+        },
+        "footer": {
+            "copyright": "© 2025 SahKosh. All rights reserved.",
+            "tagline": "Made with ❤️ for Indian families"
+        }
     }
 }

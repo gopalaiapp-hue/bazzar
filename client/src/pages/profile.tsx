@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "wouter";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -9,7 +10,7 @@ import {
   ChevronRight, Trash2, Shield, Moon, Sun, Palette,
   FileText, Database, AlertTriangle, EyeOff, Clock,
   Globe, MessageCircle, Info, Cloud, TrendingUp, ChevronDown,
-  Wallet, ArrowUpRight
+  Wallet, ArrowUpRight, ArrowDownLeft, Mail, AlertCircle
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -23,6 +24,7 @@ import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useNotifications } from "@/context/NotificationContext";
+import { resendVerificationEmail } from "@/lib/supabaseApi";
 
 
 
@@ -123,18 +125,28 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
             <ChevronDown className={`w-5 h-5 text-white/70 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
           </div>
 
-          <h2 className="text-3xl font-bold text-white mb-1">
-            {isPositive ? '' : '-'}{formatAmount(netWorth)}
-          </h2>
+          <div className="flex flex-col items-center mt-2 mb-4">
+            <h2 className="text-3xl font-bold text-white mb-1">
+              {isPositive ? '' : '-'}{formatAmount(netWorth)}
+            </h2>
+            <p className="text-white/80 text-xs bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm">
+              (Assets - Liabilities = Net Worth)
+            </p>
+          </div>
 
-          <div className="flex items-center gap-4 mt-4">
-            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm">
-              <p className="text-white/70 text-xs mb-1">Assets</p>
-              <p className="text-white font-semibold">{formatAmount(totalAssets)}</p>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm border border-white/10">
+              <p className="text-white/70 text-xs mb-1">Assets (Own)</p>
+              <p className="text-white font-semibold flex items-center gap-1">
+                <ArrowUpRight className="w-3 h-3 text-green-300" /> {formatAmount(totalAssets)}
+              </p>
             </div>
-            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm">
-              <p className="text-white/70 text-xs mb-1">Liabilities</p>
-              <p className="text-white font-semibold">{formatAmount(totalLiabilities)}</p>
+            <div className="text-white/50 font-bold">-</div>
+            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm border border-white/10">
+              <p className="text-white/70 text-xs mb-1">Liabilities (Owe)</p>
+              <p className="text-white font-semibold flex items-center gap-1">
+                <ArrowDownLeft className="w-3 h-3 text-red-300" /> {formatAmount(totalLiabilities)}
+              </p>
             </div>
           </div>
         </div>
@@ -254,22 +266,104 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
   );
 }
 
+// Invite Code Display Component
+function InviteCodeCard({ userId }: { userId?: string }) {
+  const { toast } = useToast();
+  const [inviteCode, setInviteCode] = useState("");
+
+  const { data: inviteData } = useQuery({
+    queryKey: ["inviteCode", userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      // Fetch existing invite code from database
+      const { getInviteCodeByCreator } = await import("@/lib/supabaseApi");
+      const code = await getInviteCodeByCreator(userId);
+      if (code) {
+        setInviteCode(code.code);
+      }
+      return code;
+    },
+    enabled: !!userId
+  });
+
+  if (!inviteCode) return null;
+
+  return (
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100 p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <h4 className="text-sm font-bold text-blue-900 mb-1">Your Family Invite Code</h4>
+          <p className="text-xs text-blue-700 mb-2">Share this code with family members to join</p>
+          <div className="bg-white border border-blue-200 rounded-lg p-2 font-mono font-bold text-lg tracking-widest text-center text-blue-900">
+            {inviteCode}
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="ml-3 border-blue-200 text-blue-700 hover:bg-blue-100 h-10 w-10"
+          onClick={() => {
+            navigator.clipboard.writeText(inviteCode);
+            toast({ title: "Copied!", description: "Invite code copied to clipboard" });
+          }}
+        >
+          <Share2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Profile() {
-  const { user, refreshUser, logout } = useUser();
+  const { user, session, refreshUser, logout, isLoading: isUserLoading } = useUser();
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { showTestNotification } = useNotifications();
+  const [, setLocation] = useLocation();
 
-  // Settings State
-  const [isAppLocked, setIsAppLocked] = useState(user?.settings?.appLock || true);
-  const [isHiddenPockets, setIsHiddenPockets] = useState(user?.settings?.hiddenPockets || false);
+  // Settings State - initialize with safe defaults
+  const [isAppLocked, setIsAppLocked] = useState(true);
+  const [isHiddenPockets, setIsHiddenPockets] = useState(false);
+  const [dailyBriefTime, setDailyBriefTime] = useState("20:00");
 
-  const [language, setLanguage] = useState(user?.language || "en");
-  const [tempLanguage, setTempLanguage] = useState(language);
+  const [language, setLanguage] = useState("en");
+  const [tempLanguage, setTempLanguage] = useState("en");
 
-  const [dailyBriefTime, setDailyBriefTime] = useState(user?.settings?.dailyBriefTime || "20:00");
+  // Sync state when user loads
+  useEffect(() => {
+    if (user) {
+      setIsAppLocked(user.settings?.appLock ?? true);
+      setIsHiddenPockets(user.settings?.hiddenPockets ?? false);
+      setDailyBriefTime(user.settings?.dailyBriefTime || "20:00");
+      setLanguage(user.language || "en");
+      setTempLanguage(user.language || "en");
+    }
+  }, [user]);
+
+  // Handle redirects and empty states -- REMOVED ALL REDIRECTS to strictly follow user request
+  // Now we simply render different UI states based on auth status.
+
+  // Show loading spinner
+  if (isUserLoading) {
+    return (
+      <MobileShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </MobileShell>
+    );
+  }
+
+  // Robust ID check
+  const userId = user?.id || session?.user?.id;
+
+  // REMOVED BLOCKERS: User requested to see the UI even if signed out.
+  // We will conditionally render user-specific data instead.
+
   const [tempDailyBriefTime, setTempDailyBriefTime] = useState(dailyBriefTime);
+
+
 
   const [notifications, setNotifications] = useState(user?.settings?.notifications || {
     spending: true, goals: true, family: true, budget: true
@@ -290,6 +384,7 @@ export default function Profile() {
   const [encryptBackup, setEncryptBackup] = useState(false);
   const [backupAccount, setBackupAccount] = useState("");
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   const [tempFamilyType, setTempFamilyType] = useState<"mai_sirf" | "couple" | "joint" | null>(user?.familyType || null);
 
@@ -318,16 +413,27 @@ export default function Profile() {
     }
   }, [user, i18n]);
 
-  const { data: familyMembers = [] } = useQuery({
-    queryKey: ["family", user?.id],
+  // Fetch existing invite code from database
+  const { data: inviteData } = useQuery({
+    queryKey: ["inviteCode", userId],
     queryFn: async () => {
-      if (!user?.id) return [];
-      const res = await fetch(`/api/family/${user.id}`);
+      if (!userId) return null;
+      const { getInviteCodeByCreator } = await import("@/lib/supabaseApi");
+      return await getInviteCodeByCreator(userId);
+    },
+    enabled: !!userId
+  });
+
+  const { data: familyMembers = [] } = useQuery({
+    queryKey: ["family", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(`/api/family/${userId}`);
       if (!res.ok) throw new Error("Failed to fetch family");
       const data = await res.json();
       return data.members;
     },
-    enabled: !!user?.id
+    enabled: !!userId
   });
 
   const addFamilyMutation = useMutation({
@@ -645,13 +751,53 @@ export default function Profile() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <NetWorthDisplay userId={user?.id} />
+              <NetWorthDisplay userId={userId} />
             </div>
             <div className="h-10 w-10 bg-gray-800 rounded-full flex items-center justify-center">
               <Shield className="w-5 h-5 text-green-400" />
             </div>
           </div>
         </div>
+
+        {/* Email Verification Banner */}
+        {user?.emailVerified === false && (
+          <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <Mail className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-amber-900">Email Not Verified</h3>
+              <p className="text-xs text-amber-700 mt-0.5">Please verify your email for account security and password recovery.</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100"
+              disabled={isResendingVerification}
+              onClick={async () => {
+                if (!user?.email) return;
+                setIsResendingVerification(true);
+                try {
+                  await resendVerificationEmail(user.email);
+                  toast({
+                    title: "Verification email sent!",
+                    description: "Check your inbox and click the link to verify.",
+                  });
+                } catch (error: any) {
+                  toast({
+                    title: "Failed to send",
+                    description: error.message || "Please try again later.",
+                    variant: "destructive"
+                  });
+                } finally {
+                  setIsResendingVerification(false);
+                }
+              }}
+            >
+              {isResendingVerification ? "Sending..." : "Verify Now"}
+            </Button>
+          </div>
+        )}
 
         {/* Menu Items */}
         <div className="p-4 space-y-6">
@@ -686,7 +832,7 @@ export default function Profile() {
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>{editingBankId ? "Edit Bank" : "Add Bank / UPI"}</DialogTitle>
-                      <DialogDescription>Link your bank account or UPI for payments</DialogDescription>
+                      <DialogDescription>Store account details locally (Real Bank Sync Coming Soon)</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div>
@@ -732,6 +878,9 @@ export default function Profile() {
           {/* Family & Safety - Hidden for mai_sirf users */}
           {user?.familyType !== 'mai_sirf' && (
             <section className="space-y-3">
+              {/* Invite Code Display Card - Persistent */}
+              <InviteCodeCard userId={user?.id} />
+
               <div className="flex justify-between items-center px-2">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t('profile.familyMembers')} ({familyMembers.length})</h3>
                 <Dialog open={addFamilyOpen} onOpenChange={setAddFamilyOpen}>
@@ -747,15 +896,16 @@ export default function Profile() {
                       {/* Invite Code Section */}
                       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                         <h4 className="text-sm font-bold text-blue-900 mb-2">Invite via Code</h4>
-                        <p className="text-xs text-blue-700 mb-3">Share this code with your partner/family member to let them join.</p>
+                        <p className="text-xs text-blue-700 mb-3">Share this code with your partner/family member to let them join. Code never expires.</p>
 
-                        {generatedInviteCode ? (
+                        {/* Always show the existing invite code from InviteCodeCard data or generate */}
+                        {inviteData?.code || generatedInviteCode ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-white border border-blue-200 rounded-lg p-2 text-center font-mono font-bold text-lg tracking-widest">
-                              {generatedInviteCode}
+                              {inviteData?.code || generatedInviteCode}
                             </div>
                             <Button variant="outline" size="icon" onClick={() => {
-                              navigator.clipboard.writeText(generatedInviteCode);
+                              navigator.clipboard.writeText(inviteData?.code || generatedInviteCode);
                               toast({ title: "Copied!", description: "Code copied to clipboard" });
                             }}>
                               <Share2 className="w-4 h-4" />
@@ -768,7 +918,7 @@ export default function Profile() {
                             variant="outline"
                             className="w-full border-blue-200 text-blue-700 hover:bg-blue-100"
                           >
-                            {inviteLoading ? "Generating..." : "Generate Invite Code"}
+                            {inviteLoading ? "Getting Code..." : "Get Your Invite Code"}
                           </Button>
                         )}
                       </div>

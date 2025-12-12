@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Pocket, Transaction as DbTransaction } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
+import { notifyTransaction } from "@/lib/notificationService";
 
 interface Transaction {
   id: string;
@@ -137,18 +138,20 @@ export default function Home() {
     }
   }, []);
 
-  if (!userId) {
-    return (
-      <MobileShell>
-        <div className="p-6 text-center space-y-4">
-          <p className="text-muted-foreground">Please complete onboarding first.</p>
-          <Button onClick={() => setLocation("/")}>Go to Onboarding</Button>
-        </div>
-      </MobileShell>
-    );
-  }
-
+  // Calculate balance from pockets
   const totalBalance = pockets.reduce((acc, pocket) => acc + (pocket.amount || 0), 0);
+
+  // Calculate income and expense from transactions
+  const totalIncome = transactions
+    .filter(tx => tx.type === "credit")
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalExpense = transactions
+    .filter(tx => tx.type === "debit")
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  // Net balance = income - expense
+  const netBalance = totalIncome - totalExpense;
 
   // Calculate today's spending
   const getTodaySpending = () => {
@@ -222,6 +225,13 @@ export default function Home() {
       updated = transactions.map(t => t.id === editingId ? newTx : t);
     } else {
       updated = [newTx, ...transactions];
+
+      // Trigger notification and vibration for new transactions
+      notifyTransaction(
+        formData.type as 'income' | 'expense',
+        parseInt(formData.amount),
+        formData.merchant
+      ).catch(err => console.warn('Notification failed:', err));
     }
 
     setTransactions(updated);
@@ -389,9 +399,20 @@ export default function Home() {
       header={
         <div className="px-6 pt-6 pb-4 bg-white sticky top-0 z-10 shadow-sm">
           <div className="flex justify-between items-center mb-4">
-            <div>
+            <div className="flex-1">
               <p className="text-sm text-muted-foreground font-medium">{t('home.totalBalance')}</p>
-              <h1 className="text-3xl font-heading font-bold text-foreground">{formatCurrency(totalBalance)}</h1>
+              <h1 className="text-3xl font-heading font-bold text-foreground">{formatCurrency(netBalance)}</h1>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-muted-foreground">
+                  Income {formatCurrency(totalIncome)} • Expense {formatCurrency(totalExpense)}
+                </p>
+                {user?.familyType && (user.familyType === 'couple' || user.familyType === 'joint') && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${user.familyType === 'couple' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'
+                    }`}>
+                    {user.familyType === 'couple' ? '👫 Couple' : '👨‍👩‍👧‍👦 Joint Family'}
+                  </span>
+                )}
+              </div>
             </div>
             <Button variant="ghost" size="icon" className="rounded-full bg-gray-50" onClick={() => toast({ title: t('home.notifications'), description: t('home.noNewNotifications') })}>
               <Bell className="w-5 h-5 text-gray-600" />
@@ -913,6 +934,43 @@ export default function Home() {
 
               {filterType !== "all" && <span className="text-[10px] font-bold text-primary uppercase">{filterType}</span>}
             </div>
+          </div>
+
+          {/* Expense/Income Toggle Buttons */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setFilterType("all")}
+              className={cn(
+                "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all",
+                filterType === "all"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              )}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setFilterType("debit")}
+              className={cn(
+                "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all",
+                filterType === "debit"
+                  ? "bg-red-500 text-white shadow-md"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              )}
+            >
+              Expenses
+            </button>
+            <button
+              onClick={() => setFilterType("credit")}
+              className={cn(
+                "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all",
+                filterType === "credit"
+                  ? "bg-green-500 text-white shadow-md"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              )}
+            >
+              Income
+            </button>
           </div>
 
           <div className="space-y-4">

@@ -6,29 +6,43 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery } from "@tanstack/react-query";
 import type { Goal } from "@shared/schema";
 import { useLocation } from "wouter";
+import { useUser } from "@/context/UserContext";
 
 export default function Goals() {
   const [, setLocation] = useLocation();
-  const userId = localStorage.getItem("userId");
+  const { user, isLoading: isUserLoading } = useUser();
+  const userId = user?.id;
 
-  const { data: goals = [], isLoading } = useQuery<Goal[]>({
+  const { data: goals = [], isLoading: isGoalsLoading } = useQuery<Goal[]>({
     queryKey: ["goals", userId],
     queryFn: async () => {
       if (!userId) return [];
       const res = await fetch(`/api/goals/${userId}`);
       if (!res.ok) throw new Error("Failed to fetch goals");
       const data = await res.json();
-      return data.goals;
+      return data.goals || [];
     },
     enabled: !!userId,
   });
 
-  if (!userId) {
+  // Show loading spinner while user data is being fetched
+  if (isUserLoading) {
+    return (
+      <MobileShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </MobileShell>
+    );
+  }
+
+  // Show message only if no user context (not logged in)
+  if (!user || !userId) {
     return (
       <MobileShell>
         <div className="p-6 text-center space-y-4">
-          <p className="text-muted-foreground">Please complete onboarding first.</p>
-          <Button onClick={() => setLocation("/")}>Go to Onboarding</Button>
+          <p className="text-muted-foreground">Please log in to view your goals.</p>
+          <Button onClick={() => setLocation("/")}>Go to Login</Button>
         </div>
       </MobileShell>
     );
@@ -50,7 +64,7 @@ export default function Goals() {
           </Button>
         </div>
 
-        {isLoading ? (
+        {isGoalsLoading ? (
           <div className="flex justify-center items-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
           </div>

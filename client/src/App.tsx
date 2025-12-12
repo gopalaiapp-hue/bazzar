@@ -1,3 +1,4 @@
+import React from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +8,7 @@ import { UserProvider } from "@/context/UserContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { NotificationProvider } from "@/context/NotificationContext";
 import { LockScreen } from "@/components/LockScreen";
+import SplashScreen from "@/components/SplashScreen";
 import "./lib/i18n"; // Initialize i18n
 import NotFound from "@/pages/not-found";
 
@@ -46,6 +48,15 @@ function Router() {
 
 
 function App() {
+  const [showSplash, setShowSplash] = React.useState(true);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (showSplash) return <SplashScreen />;
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -65,4 +76,3 @@ function App() {
 }
 
 export default App;
-

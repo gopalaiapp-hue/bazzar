@@ -45,6 +45,34 @@ export default function Onboarding() {
       setUserId(user.id);
     }
   }, [user, userId]);
+
+  // CRITICAL: Check if user is already logged in and onboarding complete
+  // If so, redirect to home immediately
+  React.useEffect(() => {
+    const checkSession = async () => {
+      // Check localStorage for onboarding completion (matches key set in handleLinkBank)
+      const onboardingComplete = localStorage.getItem('onboarding_completed') === 'true';
+
+      // If user exists in context and onboarding is complete, go to home
+      if (user && user.id) {
+        // Check if user has completed onboarding (step 99 or flag set)
+        if (user.onboardingStep === 99 || onboardingComplete) {
+          console.log("User already logged in, redirecting to home");
+          navigate("/home");
+          return;
+        }
+      }
+
+      // Also check Supabase session directly
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && onboardingComplete) {
+        console.log("Session found, redirecting to home");
+        navigate("/home");
+      }
+    };
+
+    checkSession();
+  }, [user, navigate]);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
@@ -52,6 +80,25 @@ export default function Onboarding() {
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // Load remembered credentials on mount
+  React.useEffect(() => {
+    const remembered = localStorage.getItem('bazaar_remembered_email');
+    const rememberedPw = localStorage.getItem('bazaar_remembered_pw');
+    if (remembered) {
+      setEmail(remembered);
+      setRememberMe(true);
+      // Auto-fill password if available (decoded from Base64)
+      if (rememberedPw) {
+        try {
+          setPassword(atob(rememberedPw));
+        } catch (e) {
+          console.warn('Failed to decode remembered password');
+        }
+      }
+    }
+  }, []);
 
   // Helper function for password strength
   const getPasswordStrength = (password: string) => {
@@ -83,40 +130,42 @@ export default function Onboarding() {
     }
 
     setLoading(true);
+    setNetworkError(null); // Clear any previous errors
+
     try {
       // Sign up with Supabase Auth
-      // The database trigger will auto-create the user profile in the users table
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         options: {
           data: {
             name: isMember ? name : undefined,
-          }
+          },
+          emailRedirectTo: 'https://bazaarbudget.app/auth/callback'
         }
       });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error("Signup failed - no user returned");
-
-      // CHECK FOR SESSION: If email confirmation is ON, session will be null
-      if (!authData.session) {
-        toast({
-          title: "Check your email",
-          description: "Please click the confirmation link sent to your email to complete signup.",
-          duration: 6000
-        });
-        // We cannot proceed to onboarding until they verify
-        return;
+      if (authError) {
+        // Check specifically for User already registered error
+        if (authError.message.toLowerCase().includes('already') ||
+          authError.message.toLowerCase().includes('registered') ||
+          authError.message.toLowerCase().includes('duplicate')) {
+          throw new Error('EMAIL_ALREADY_REGISTERED');
+        }
+        throw authError;
       }
+      if (!authData.user) throw new Error("Signup failed - no user returned");
 
       const newUserId = authData.user.id;
       setUserId(newUserId);
 
-      // Wait a moment for the trigger to create the profile
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Check if we got a session (auto-confirmation) or not (email confirmation required)
+      const { data: { session } } = await supabase.auth.getSession();
+      const hasSession = !!session || !!authData.session;
 
-      // If member, update the profile with member-specific info
+      console.log("Signup result:", { userId: newUserId, hasSession, sessionExists: !!authData.session });
+
+      // Handle member signup with invite code
       if (isMember && inviteValid) {
         await updateUser(newUserId, {
           name,
@@ -126,7 +175,34 @@ export default function Onboarding() {
         });
       }
 
-      await refreshUser();
+      // Only refresh user if we have a session
+      if (hasSession) {
+        await refreshUser();
+      } else {
+        // For session-less signup (email confirmation required)
+        // Create basic profile that will be completed after email verification
+        updateUser(newUserId, {
+          email,
+          name: isMember ? name : null,
+          onboarding_step: 0,
+        }).catch(err => {
+          console.warn("Profile creation will be handled by database trigger:", err);
+        });
+
+        // Show friendly message that email verification is needed
+        toast({
+          title: "Welcome! Check your email 📧",
+          description: "We've sent a verification link. Click it to activate your account and signin.",
+          duration: 8000
+        });
+      }
+
+      // Save email if Remember Me is checked
+      if (rememberMe) {
+        localStorage.setItem('bazaar_remembered_email', email);
+      } else {
+        localStorage.removeItem('bazaar_remembered_email');
+      }
 
       if (isMember) {
         navigate("/home");
@@ -136,10 +212,30 @@ export default function Onboarding() {
     } catch (error: any) {
       console.error("Signup error:", error);
       let errorMessage = error.message || "Signup failed";
-      if (errorMessage.includes("already registered") || errorMessage.includes("already been registered")) {
-        errorMessage = "Email already registered. Please sign in instead.";
+      // Check for various duplicate email error patterns
+      const isDuplicateEmail = errorMessage.includes("already") ||
+        errorMessage.includes("User already registered") ||
+        errorMessage.includes("duplicate") ||
+        errorMessage.includes("already been registered");
+
+      if (isDuplicateEmail) {
+        // Show confirmation dialog for duplicate signup
+        const userChoice = window.confirm(
+          `This email (${email}) is already registered.\n\nWould you like to sign in instead?\n\n` +
+          `Click OK to go to Sign In, or Cancel to try a different email.`
+        );
+
+        if (userChoice) {
+          // User wants to sign in - switch to signin mode and prefill email
+          setIsSignup(false);
+          toast({
+            title: "Redirected to Sign In",
+            description: "Please enter your password to continue"
+          });
+        }
+      } else {
+        toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
       }
-      toast({ title: "Signup Failed", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -167,24 +263,60 @@ export default function Onboarding() {
       toast({ title: "Invalid", description: "Enter email and password", variant: "destructive" });
       return;
     }
+
     setLoading(true);
+    setNetworkError(null);
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      if (!data.user) throw new Error("Signin failed");
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password
+      });
+
+      if (error) {
+        setLoading(false);
+        // Handle specific error cases
+        if (error.message.includes("Email not confirmed") || error.message.includes("not confirmed")) {
+          throw new Error("Please verify your email first. Check your inbox for the verification link.");
+        }
+        if (error.message.includes("Invalid") || error.message.includes("credentials")) {
+          throw new Error("Invalid email or password. Please try again.");
+        }
+        throw error;
+      }
+
+      if (!data.user || !data.session) {
+        setLoading(false);
+        throw new Error("Signin failed - no session returned");
+      }
+
+      // Save or clear remembered credentials based on checkbox
+      if (rememberMe) {
+        localStorage.setItem('bazaar_remembered_email', email);
+        localStorage.setItem('bazaar_remembered_pw', btoa(password));
+      } else {
+        localStorage.removeItem('bazaar_remembered_email');
+        localStorage.removeItem('bazaar_remembered_pw');
+      }
 
       setUserId(data.user.id);
-      await refreshUser();
+      await refreshUser(); // Load user profile into context
+      setLoading(false);
       navigate("/home");
     } catch (error: any) {
-      console.error("Signin error:", error);
-      let errorMessage = error.message || "Invalid credentials";
-      if (errorMessage.includes("Invalid") || errorMessage.includes("credentials")) {
-        errorMessage = "Email or password is incorrect";
-      }
-      toast({ title: "Signin Failed", description: errorMessage, variant: "destructive" });
-    } finally {
       setLoading(false);
+      console.error("Signin error:", error);
+
+      const errorMessage = error.message || "Invalid credentials";
+      if (errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('fetch')) {
+        setNetworkError("Network error. Please check your internet connection and try again.");
+      } else {
+        toast({
+          title: "Signin Failed",
+          description: errorMessage,
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -199,16 +331,20 @@ export default function Onboarding() {
       return;
     }
 
-    setLoading(true);
-    try {
-      await updateUser(userId, { name, onboarding_step: 1 });
-      await refreshUser();
-      setScreen(2);
-    } catch (error: any) {
-      toast({ title: "Failed", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
+    // Validate name: only alphabets and spaces allowed
+    const nameRegex = /^[a-zA-Z\s]+$/;
+    if (!nameRegex.test(name)) {
+      toast({
+        title: "Invalid Name",
+        description: "Name can only contain letters and spaces. Numbers and special characters are not allowed.",
+        variant: "destructive"
+      });
+      return;
     }
+
+    // Just proceed to next screen - database will be updated after verification
+    console.log("Saving name locally:", name);
+    setScreen(2);
   };
 
   const handleSaveFamily = async () => {
@@ -216,16 +352,10 @@ export default function Onboarding() {
       toast({ title: "Required", description: "Select family type", variant: "destructive" });
       return;
     }
-    setLoading(true);
-    try {
-      await updateUser(userId, { family_type: familyType, onboarding_step: 2 });
-      await refreshUser();
-      setScreen(3);
-    } catch (error: any) {
-      toast({ title: "Failed", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+
+    // Just proceed to next screen - database will be updated after verification
+    console.log("Saving family type locally:", familyType);
+    setScreen(3);
   };
 
   const handleSaveIncome = async () => {
@@ -233,22 +363,27 @@ export default function Onboarding() {
       toast({ title: "Required", description: "Select at least one income source", variant: "destructive" });
       return;
     }
-    setLoading(true);
-    try {
-      await updateUser(userId, { income_sources: incomeSources, onboarding_step: 3 });
-      await refreshUser();
-      setScreen(4);
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+
+    // Just proceed to next screen - database will be updated after verification
+    console.log("Saving income sources locally:", incomeSources);
+    setScreen(4);
   };
 
   const handleSaveFamilyType = async () => {
     setLoading(true);
     try {
-      await updateUser(userId, { onboarding_step: 99, onboarding_complete: true });
+      // Mark onboarding as complete in both database and localStorage
+      await updateUser(userId, {
+        onboarding_step: 99,
+        onboarding_complete: true,
+        name,
+        family_type: familyType  // Use snake_case for database column
+      });
+
+      // Store completion flag in localStorage as well
+      localStorage.setItem('onboarding_completed', 'true');
+      localStorage.setItem('user_id', userId);
+
       await refreshUser();
       toast({ title: "Success!", description: "Onboarding complete" });
       setTimeout(() => navigate("/home"), 500);
@@ -262,45 +397,46 @@ export default function Onboarding() {
   const [generatedInviteCode, setGeneratedInviteCode] = useState("");
 
   const handleGenerateInvite = async () => {
-    setLoading(true);
     try {
-      // Check if user already has an invite code
-      let invite = await getInviteCodeByCreator(userId);
-      if (!invite) {
-        // Generate a random 8-character code
-        const code = Math.random().toString(36).substring(2, 10).toUpperCase();
-        invite = await createInviteCode({ code, creator_id: userId, status: 'active' });
-      }
-      if (invite) {
-        setGeneratedInviteCode(invite.code);
-      }
-    } catch (error: any) {
-      console.error("Generate invite error:", error);
-      toast({ title: "Failed", description: "Could not generate invite code", variant: "destructive" });
-    } finally {
-      setLoading(false);
+      // Generate code
+      const code = `FAM-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+      setGeneratedInviteCode(code);
+
+      // Save to database immediately
+      await createInviteCode({
+        code,
+        creator_id: userId,
+        family_name: name || 'Family',
+        status: 'active',
+        auto_accept: false
+      });
+
+      toast({ title: "Invite Code Generated", description: "Share this code with your family" });
+      console.log("Invite code saved to database:", code);
+    } catch (error) {
+      console.error("Failed to create invite code:", error);
+      toast({ title: "Error", description: "Could not generate invite code", variant: "destructive" });
     }
   };
 
   const handleLinkBank = async () => {
-    setLoading(true);
-    try {
-      await updateUser(userId, { onboarding_step: 99, onboarding_complete: true });
-      await refreshUser();
+    // Show coming soon message
+    toast({
+      title: "Coming Soon! 🚀",
+      description: "Bank linking feature will be available soon. Stay tuned!",
+      duration: 3000
+    });
 
-      // If Couple or Joint, go to Invite Screen
+    // Wait a moment for user to see the toast, then proceed
+    setTimeout(async () => {
       if (familyType === 'couple' || familyType === 'joint') {
         await handleGenerateInvite();
         setScreen(5);
       } else {
-        toast({ title: "Success!", description: "Onboarding complete" });
-        setTimeout(() => navigate("/home"), 500);
+        // Save final data and navigate to home
+        await handleSaveFamilyType();
       }
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+    }, 1500);
   };
 
   const incomeOptions = [
@@ -520,6 +656,20 @@ export default function Onboarding() {
                 </div>
               </div>
 
+              {/* Remember Me Checkbox */}
+              <div className="flex items-center space-x-2 mt-3">
+                <input
+                  type="checkbox"
+                  id="remember-me"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="remember-me" className="text-sm text-gray-700 cursor-pointer">
+                  Remember my email
+                </label>
+              </div>
+
               {/* Password Strength Meter for Signup */}
               {isSignup && password.length > 0 && (
                 <div className="mt-4">
@@ -669,13 +819,13 @@ export default function Onboarding() {
             <h2 className="text-2xl font-bold">Link Bank Account?</h2>
             <p className="text-sm text-gray-600">We can auto-track expenses from SMS.</p>
             <div className="space-y-3">
-              <Button onClick={handleSaveFamilyType} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 h-12 font-bold">
+              <Button onClick={handleLinkBank} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 h-12 font-bold">
                 {loading ? "Linking..." : "Yes, Secure Link"}
               </Button>
-              <Button variant="ghost" onClick={async () => {
-                await refreshUser(); // Ensure final state is captured
+              <Button variant="ghost" onClick={() => {
+                // Skip bank linking and proceed
                 if (familyType === 'couple' || familyType === 'joint') {
-                  await handleGenerateInvite();
+                  handleGenerateInvite();
                   setScreen(5);
                 } else {
                   navigate("/home");

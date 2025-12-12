@@ -46,7 +46,7 @@ export async function registerRoutes(
       const invite = await storage.createInviteCode({
         code,
         creatorId: userId,
-        familyName: familyName || null,
+        familyName: familyName || undefined,
         autoAccept: false,
         status: "active"
       });
@@ -808,6 +808,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      console.error("Budget creation error:", error);
       return res.status(500).json({ error: "Failed to create budget" });
     }
   });

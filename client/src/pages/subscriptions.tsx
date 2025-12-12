@@ -160,6 +160,18 @@ export default function Subscriptions() {
     const monthlyTotal = activeSubscriptions.reduce((sum, s) => sum + s.amount, 0);
     const yearlyTotal = monthlyTotal * 12;
 
+    const { isLoading: isUserLoading } = useUser();
+
+    if (isUserLoading) {
+        return (
+            <MobileShell>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                </div>
+            </MobileShell>
+        );
+    }
+
     if (!user) return null;
 
     return (

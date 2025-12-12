@@ -3,9 +3,15 @@ import { MobileShell } from "@/components/layout/mobile-shell";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { useBackButton } from "@/hooks/useBackButton";
+import { useTranslation } from "react-i18next";
 
 export default function PrivacyPolicy() {
     const [, setLocation] = useLocation();
+    const { t } = useTranslation();
+
+    // Implement double-tap back button logic
+    useBackButton(() => setLocation("/profile"));
 
     return (
         <MobileShell>
@@ -16,9 +22,9 @@ export default function PrivacyPolicy() {
                         <button onClick={() => setLocation("/profile")} className="p-2 hover:bg-gray-100 rounded-full">
                             <ChevronLeft className="w-5 h-5" />
                         </button>
-                        <h1 className="text-2xl font-heading font-bold">Privacy Policy</h1>
+                        <h1 className="text-2xl font-heading font-bold">{t('privacyPolicy.title')}</h1>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">Last Updated: Nov 29, 2025</p>
+                    <p className="text-xs text-muted-foreground mt-2">{t('privacyPolicy.lastUpdated')}: Nov 29, 2025</p>
                 </div>
 
                 {/* Content */}
@@ -26,136 +32,136 @@ export default function PrivacyPolicy() {
 
                     {/* Introduction */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">1. Introduction</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.introduction.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            Shakosh ("we", "us", "our") values your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website.
+                            {t('privacyPolicy.introduction.content')}
                         </p>
                     </section>
 
                     {/* Information We Collect */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">2. Information We Collect</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.dataCollection.heading')}</h2>
                         <div className="space-y-2 text-sm">
-                            <p><strong>Personal Information:</strong> Phone number, name, email address, family details</p>
-                            <p><strong>Financial Data:</strong> Transaction history, expense categories, payment methods (we do not store card details)</p>
-                            <p><strong>Device Information:</strong> Device ID, OS version, app version</p>
-                            <p><strong>Usage Data:</strong> Features used, time spent, crash reports</p>
-                            <p><strong>Photos:</strong> Receipt images you voluntarily upload</p>
+                            <p><strong>{t('privacyPolicy.dataCollection.personalInfo')}</strong> {t('privacyPolicy.dataCollection.personalInfoDesc')}</p>
+                            <p><strong>{t('privacyPolicy.dataCollection.financialData')}</strong> {t('privacyPolicy.dataCollection.financialDataDesc')}</p>
+                            <p><strong>{t('privacyPolicy.dataCollection.deviceInfo')}</strong> {t('privacyPolicy.dataCollection.deviceInfoDesc')}</p>
+                            <p><strong>{t('privacyPolicy.dataCollection.usageData')}</strong> {t('privacyPolicy.dataCollection.usageDataDesc')}</p>
+                            <p><strong>{t('privacyPolicy.dataCollection.photos')}</strong> {t('privacyPolicy.dataCollection.photosDesc')}</p>
                         </div>
                     </section>
 
                     {/* How We Use Information */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">3. How We Use Your Information</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.dataUsage.heading')}</h2>
                         <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
-                            <li>Provide core features: expense tracking, budgeting, family sharing</li>
-                            <li>Generate reports and analytics for your family</li>
-                            <li>Send transaction notifications and reminders</li>
-                            <li>Improve app performance and user experience</li>
-                            <li>Communicate updates and support messages</li>
-                            <li>Comply with legal obligations (tax filing, RBI regulations)</li>
+                            <li>{t('privacyPolicy.dataUsage.feature1')}</li>
+                            <li>{t('privacyPolicy.dataUsage.feature2')}</li>
+                            <li>{t('privacyPolicy.dataUsage.feature3')}</li>
+                            <li>{t('privacyPolicy.dataUsage.feature4')}</li>
+                            <li>{t('privacyPolicy.dataUsage.feature5')}</li>
+                            <li>{t('privacyPolicy.dataUsage.feature6')}</li>
                         </ul>
                     </section>
 
                     {/* Data Security */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">4. Data Security</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.security.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            We use industry-standard encryption (SSL/TLS) to protect your data during transmission. Your financial data is stored securely on encrypted servers with access controls and regular backups. However, no method of transmission over the internet is 100% secure.
+                            {t('privacyPolicy.security.content')}
                         </p>
                     </section>
 
                     {/* Family Data Sharing */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">5. Family Data Sharing</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.familySharing.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            When you create a family group, you agree to share expense data with invited members. Each member can see shared transactions and family analytics based on their role and permissions. You can revoke access anytime.
+                            {t('privacyPolicy.familySharing.content')}
                         </p>
                     </section>
 
                     {/* Third-Party Services */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">6. Third-Party Services</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.thirdParty.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            We may integrate with third-party services for:
+                            {t('privacyPolicy.thirdParty.intro')}
                         </p>
                         <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                            <li>Payment processing (Stripe, Razorpay)</li>
-                            <li>Cloud storage (Google Drive for backups)</li>
-                            <li>Analytics (Firebase, Mixpanel)</li>
-                            <li>SMS delivery (Twilio)</li>
+                            <li>{t('privacyPolicy.thirdParty.payment')}</li>
+                            <li>{t('privacyPolicy.thirdParty.storage')}</li>
+                            <li>{t('privacyPolicy.thirdParty.analytics')}</li>
+                            <li>{t('privacyPolicy.thirdParty.sms')}</li>
                         </ul>
-                        <p className="text-sm text-gray-700 mt-2">These services have their own privacy policies.</p>
+                        <p className="text-sm text-gray-700 mt-2">{t('privacyPolicy.thirdParty.disclaimer')}</p>
                     </section>
 
                     {/* Your Rights */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">7. Your Rights</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.userRights.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            You have the right to:
+                            {t('privacyPolicy.userRights.intro')}
                         </p>
                         <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                            <li>Access your personal data</li>
-                            <li>Request corrections to inaccurate data</li>
-                            <li>Request deletion of your account and data</li>
-                            <li>Export your data in standard format</li>
-                            <li>Withdraw consent at any time</li>
+                            <li>{t('privacyPolicy.userRights.access')}</li>
+                            <li>{t('privacyPolicy.userRights.correct')}</li>
+                            <li>{t('privacyPolicy.userRights.delete')}</li>
+                            <li>{t('privacyPolicy.userRights.export')}</li>
+                            <li>{t('privacyPolicy.userRights.withdraw')}</li>
                         </ul>
                     </section>
 
                     {/* Data Retention */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">8. Data Retention</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.dataRetention.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            We retain transaction data for 7 years (as per Indian tax regulations). After account deletion, your data is purged within 30 days, except where legally required to retain.
+                            {t('privacyPolicy.dataRetention.content')}
                         </p>
                     </section>
 
                     {/* GDPR & CCPA Compliance */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">9. Compliance with Regulations</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.compliance.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            We comply with:
+                            {t('privacyPolicy.compliance.intro')}
                         </p>
                         <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                            <li><strong>GDPR:</strong> If you're in EU</li>
-                            <li><strong>CCPA:</strong> If you're in California</li>
-                            <li><strong>India's Digital Personal Data Protection Act, 2023</strong></li>
-                            <li><strong>RBI Guidelines:</strong> For financial data handling</li>
+                            <li><strong>{t('privacyPolicy.compliance.gdpr')}</strong> {t('privacyPolicy.compliance.gdprDesc')}</li>
+                            <li><strong>{t('privacyPolicy.compliance.ccpa')}</strong> {t('privacyPolicy.compliance.ccpaDesc')}</li>
+                            <li><strong>{t('privacyPolicy.compliance.india')}</strong></li>
+                            <li><strong>{t('privacyPolicy.compliance.rbi')}</strong> {t('privacyPolicy.compliance.rbiDesc')}</li>
                         </ul>
                     </section>
 
                     {/* Children's Privacy */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">10. Children's Privacy</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.childrenPrivacy.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            SahKosh is not intended for children under 13. We do not knowingly collect data from children under 13. If we discover we have collected such data, we will delete it immediately.
+                            {t('privacyPolicy.childrenPrivacy.content')}
                         </p>
                     </section>
 
                     {/* Contact Us */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">11. Contact Us</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.contact.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            If you have privacy concerns or requests:
+                            {t('privacyPolicy.contact.intro')}
                         </p>
                         <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
-                            <p><strong>Email:</strong> niteshjha.uiux@yahoo.com</p>
-                            <p><strong>Address:</strong> SahKosh, Mumbai, India</p>
+                            <p><strong>{t('privacyPolicy.contact.email')}</strong> niteshjha.uiux@yahoo.com</p>
+                            <p><strong>{t('privacyPolicy.contact.address')}</strong> {t('privacyPolicy.contact.addressValue')}</p>
                         </div>
                     </section>
 
                     {/* Policy Changes */}
                     <section className="space-y-3">
-                        <h2 className="text-lg font-bold">12. Changes to This Policy</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.changes.heading')}</h2>
                         <p className="text-sm text-gray-700">
-                            We may update this policy periodically. We will notify you of significant changes via email or app notification. Your continued use of SahKosh constitutes acceptance of the updated policy.
+                            {t('privacyPolicy.changes.content')}
                         </p>
                     </section>
 
                     {/* Download Links */}
                     <section className="space-y-4 mt-8 pt-8 border-t border-gray-200">
-                        <h2 className="text-lg font-bold">Get SahKosh</h2>
+                        <h2 className="text-lg font-bold">{t('privacyPolicy.download.heading')}</h2>
                         <div className="space-y-3">
                             <a
                                 href="https://play.google.com/store/apps/details?id=com.bazaarbudget.mobile"
@@ -164,7 +170,7 @@ export default function PrivacyPolicy() {
                                 className="block"
                             >
                                 <Button className="w-full bg-green-600 hover:bg-green-700">
-                                    📱 Download on Google Play Store
+                                    {t('privacyPolicy.download.playStore')}
                                 </Button>
                             </a>
 
@@ -175,7 +181,7 @@ export default function PrivacyPolicy() {
                                 className="block"
                             >
                                 <Button className="w-full bg-black hover:bg-gray-800">
-                                    🍎 Download on Apple App Store
+                                    {t('privacyPolicy.download.appStore')}
                                 </Button>
                             </a>
 
@@ -186,7 +192,7 @@ export default function PrivacyPolicy() {
                                 className="block"
                             >
                                 <Button variant="outline" className="w-full">
-                                    🌐 Visit Website
+                                    {t('privacyPolicy.download.website')}
                                 </Button>
                             </a>
                         </div>
@@ -194,8 +200,8 @@ export default function PrivacyPolicy() {
 
                     {/* Footer */}
                     <div className="text-center text-xs text-gray-400 pt-8">
-                        <p>© 2025 SahKosh. All rights reserved.</p>
-                        <p className="mt-1">Made with ❤️ for Indian families</p>
+                        <p>{t('privacyPolicy.footer.copyright')}</p>
+                        <p className="mt-1">{t('privacyPolicy.footer.tagline')}</p>
                     </div>
                 </div>
             </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
+import { hashPin, verifyPin } from "@/lib/pinHash";
 
 const LOCK_PIN_KEY = "sahkosh_app_pin";
 const UNLOCK_SESSION_KEY = "sahkosh_unlocked";
@@ -59,7 +60,7 @@ export function LockScreen({ children }: LockScreenProps) {
         }
     }, [isLocked]);
 
-    const handleSetPin = () => {
+    const handleSetPin = async () => {
         if (pin.length < 4) {
             toast({ title: "PIN too short", description: "PIN must be at least 4 digits", variant: "destructive" });
             return;
@@ -69,7 +70,9 @@ export function LockScreen({ children }: LockScreenProps) {
             return;
         }
 
-        localStorage.setItem(LOCK_PIN_KEY, pin);
+        // Hash the PIN before storing
+        const pinHash = await hashPin(pin);
+        localStorage.setItem(LOCK_PIN_KEY, pinHash);
         sessionStorage.setItem(UNLOCK_SESSION_KEY, "true");
         setIsLocked(false);
         setIsSettingPin(false);
@@ -78,10 +81,14 @@ export function LockScreen({ children }: LockScreenProps) {
         toast({ title: "PIN Set!", description: "Your app is now protected" });
     };
 
-    const handleUnlock = () => {
-        const storedPin = localStorage.getItem(LOCK_PIN_KEY);
+    const handleUnlock = async () => {
+        const storedPinHash = localStorage.getItem(LOCK_PIN_KEY);
+        if (!storedPinHash) return;
 
-        if (pin === storedPin) {
+        // Verify PIN against stored hash
+        const isValid = await verifyPin(pin, storedPinHash);
+
+        if (isValid) {
             sessionStorage.setItem(UNLOCK_SESSION_KEY, "true");
             setIsLocked(false);
             setPin("");
@@ -238,8 +245,9 @@ export function LockScreen({ children }: LockScreenProps) {
             {/* Skip option (only when setting up) */}
             {isSettingPin && (
                 <button
-                    onClick={() => {
-                        localStorage.setItem(LOCK_PIN_KEY, "0000");
+                    onClick={async () => {
+                        const defaultHash = await hashPin("0000");
+                        localStorage.setItem(LOCK_PIN_KEY, defaultHash);
                         sessionStorage.setItem(UNLOCK_SESSION_KEY, "true");
                         setIsLocked(false);
                         toast({ title: "Default PIN set to 0000", description: "You can change it in settings" });
@@ -260,9 +268,10 @@ export function resetAppPin() {
 }
 
 // Export function to change PIN
-export function changeAppPin(newPin: string) {
+export async function changeAppPin(newPin: string) {
     if (newPin.length >= 4) {
-        localStorage.setItem(LOCK_PIN_KEY, newPin);
+        const pinHash = await hashPin(newPin);
+        localStorage.setItem(LOCK_PIN_KEY, pinHash);
         return true;
     }
     return false;

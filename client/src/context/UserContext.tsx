@@ -16,6 +16,7 @@ type User = {
     phone?: string | null;
     role?: string;
     profileImage?: string;
+    emailVerified?: boolean;
 };
 
 type UserContextType = {
@@ -40,11 +41,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const { toast } = useToast();
 
     // Fetch user profile from our users table
-    const fetchUserProfile = async (userId: string) => {
+    const fetchUserProfile = async (userId: string, authUser?: SupabaseUser | null) => {
         try {
             const profile = await getUserById(userId);
             if (profile) {
-                setUser(profile as User);
+                // Add email verification status from auth user
+                const emailVerified = authUser?.email_confirmed_at != null;
+                setUser({ ...profile, emailVerified } as User);
             }
         } catch (error) {
             console.error("Failed to fetch user profile:", error);
@@ -53,39 +56,72 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     // Initialize auth state
     useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setSupabaseUser(session?.user ?? null);
-            if (session?.user) {
-                fetchUserProfile(session.user.id);
+        let subscription: { unsubscribe: () => void } | null = null;
+
+        // Get initial session with timeout and error handling
+        const initAuth = async () => {
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+
+                if (error) {
+                    console.error("Auth session error:", error);
+                    setIsLoading(false);
+                    return;
+                }
+
+                setSession(session);
+                setSupabaseUser(session?.user ?? null);
+
+                if (session?.user) {
+                    try {
+                        await fetchUserProfile(session.user.id, session.user);
+                    } catch (profileError) {
+                        console.error("Profile fetch error:", profileError);
+                    }
+                }
+            } catch (error) {
+                console.error("Auth initialization error:", error);
+            } finally {
+                // Always set loading to false after attempt
+                setIsLoading(false);
             }
+        };
+
+        // Add a 5-second timeout fallback to prevent infinite loading
+        const timeout = setTimeout(() => {
+            console.warn("Auth timeout - forcing loading state to false");
             setIsLoading(false);
-        });
+        }, 5000);
+
+        initAuth().then(() => clearTimeout(timeout));
 
         // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        const { data } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 console.log("Auth state changed:", event);
                 setSession(session);
                 setSupabaseUser(session?.user ?? null);
 
                 if (event === 'SIGNED_IN' && session?.user) {
-                    await fetchUserProfile(session.user.id);
+                    await fetchUserProfile(session.user.id, session.user);
                 } else if (event === 'SIGNED_OUT') {
                     setUser(null);
                     setLocation("/");
                 }
             }
         );
+        subscription = data.subscription;
 
-        return () => subscription.unsubscribe();
+        return () => {
+            clearTimeout(timeout);
+            subscription?.unsubscribe();
+        };
     }, []);
 
     const refreshUser = async () => {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (authUser) {
-            await fetchUserProfile(authUser.id);
+            await fetchUserProfile(authUser.id, authUser);
         } else {
             setUser(null);
         }
