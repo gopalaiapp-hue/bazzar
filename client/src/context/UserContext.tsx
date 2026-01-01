@@ -173,7 +173,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
         // Add a 5-second timeout fallback to prevent infinite loading
         const timeout = setTimeout(() => {
-            console.warn("Auth timeout - forcing loading state to false");
+            console.warn("[UserContext] Auth timeout - forcing loading state to complete");
+            setIsSessionValidated(true);  // CRITICAL: Must also set this to prevent splash screen from staying forever
             setIsLoading(false);
         }, 5000);
 
