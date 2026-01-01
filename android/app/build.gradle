@@ -19,8 +19,10 @@ android {
     
     signingConfigs {
         release {
-            // Using debug signing for now
-            // TODO: Add production keystore
+            storeFile file("release.jks")
+            storePassword "sahkosh123"
+            keyAlias "sahkosh"
+            keyPassword "sahkosh123"
         }
     }
     
@@ -31,8 +33,7 @@ android {
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Use debug signing for now
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 }

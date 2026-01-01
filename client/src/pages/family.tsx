@@ -14,6 +14,8 @@ import { useUser } from "@/context/UserContext";
 import { useLocation } from "wouter";
 import { formatCurrencyShort } from "@/lib/fairshare-utils";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api-config";
+import { supabase } from "@/lib/supabaseClient";
 
 interface FamilyMember {
   id: number;
@@ -66,29 +68,79 @@ export default function Family() {
     }
   }, [user, familyType, setLocation, toast]);
 
-  // Fetch existing invite code
-  const { data: existingInvite } = useQuery({
+
+  // Fetch existing invite code - DIRECT FROM SUPABASE
+  const { data: existingInvite, isLoading: isLoadingInvite } = useQuery({
     queryKey: ["inviteCode", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const res = await fetch("/api/auth/invite/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.invite;
+
+      // Query Supabase directly for active invite code
+      const { data, error } = await supabase
+        .from('invite_codes')
+        .select('*')
+        .eq('creator_id', user.id)
+        .eq('status', 'active')
+        .single();
+
+      if (error) {
+        console.log("No existing invite code found");
+        return null;
+      }
+
+      return data;
     },
     enabled: !!user?.id
   });
+
+  // Auto-generate invite code if none exists
+  React.useEffect(() => {
+    const generateInitialCode = async () => {
+      if (!user?.id || isLoadingInvite) return;
+      if (existingInvite) return; // Already has a code
+
+      try {
+        console.log("Auto-generating invite code for new family head...");
+
+        // Generate new code format: FAM-XXXX-XX
+        const part1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const part2 = Math.random().toString(36).substring(2, 4).toUpperCase();
+        const code = `FAM-${part1}-${part2}`;
+
+        // Insert new code in Supabase
+        const { data: newInvite, error } = await supabase
+          .from('invite_codes')
+          .insert({
+            code,
+            creator_id: user.id,
+            status: 'active',
+            auto_accept: false
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error("Failed to auto-generate invite code:", error);
+          return;
+        }
+
+        console.log("Auto-generated invite code:", newInvite.code);
+        setInviteCode(newInvite.code);
+        queryClient.invalidateQueries({ queryKey: ["inviteCode"] });
+      } catch (err) {
+        console.error("Auto-generate code error:", err);
+      }
+    };
+
+    generateInitialCode();
+  }, [user?.id, existingInvite, isLoadingInvite, queryClient]);
 
   // Fetch linked members (users who joined via invite code)
   const { data: linkedMembers = [] } = useQuery<LinkedUser[]>({
     queryKey: ["linkedMembers", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(`/api/members/${user.id}`);
+      const res = await fetch(apiUrl(`/api/members/${user.id}`));
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       return data.members || [];
@@ -101,7 +153,7 @@ export default function Family() {
     queryKey: ["familyMembers", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(`/api/family/${user.id}`);
+      const res = await fetch(apiUrl(`/api/family/${user.id}`));
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       return data.members || [];
@@ -114,7 +166,7 @@ export default function Family() {
     queryKey: ["joinRequests", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(`/api/join/requests/${user.id}`);
+      const res = await fetch(apiUrl(`/api/join/requests/${user.id}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.requests || [];
@@ -122,23 +174,45 @@ export default function Family() {
     enabled: !!user?.id
   });
 
-  // Regenerate invite code mutation
+  // Regenerate invite code mutation - DIRECT TO SUPABASE
   const regenerateCodeMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/auth/invite/regenerate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user?.id }),
-      });
-      if (!res.ok) throw new Error("Failed to regenerate");
-      return res.json();
+      if (!user?.id) throw new Error("User not found");
+
+      // First, revoke existing codes
+      await supabase
+        .from('invite_codes')
+        .update({ status: 'revoked' })
+        .eq('creator_id', user.id)
+        .eq('status', 'active');
+
+      // Generate new code
+      const part1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const part2 = Math.random().toString(36).substring(2, 4).toUpperCase();
+      const code = `FAM-${part1}-${part2}`;
+
+      // Insert new code in Supabase
+      const { data: newInvite, error } = await supabase
+        .from('invite_codes')
+        .insert({
+          code,
+          creator_id: user.id,
+          status: 'active',
+          auto_accept: false
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { invite: newInvite };
     },
     onSuccess: (data) => {
       setInviteCode(data.invite.code);
       queryClient.invalidateQueries({ queryKey: ["inviteCode"] });
       toast({ title: "Code Regenerated", description: "Old code is now invalid" });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("Regenerate error:", error);
       toast({ title: "Error", description: "Failed to regenerate code", variant: "destructive" });
     }
   });
@@ -146,7 +220,7 @@ export default function Family() {
   // Approve join request
   const approveMutation = useMutation({
     mutationFn: async (requestId: number) => {
-      const res = await fetch(`/api/join/approve/${requestId}`, {
+      const res = await fetch(apiUrl(`/api/join/approve/${requestId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hofId: user?.id }),
@@ -164,7 +238,7 @@ export default function Family() {
   // Reject join request
   const rejectMutation = useMutation({
     mutationFn: async (requestId: number) => {
-      const res = await fetch(`/api/join/reject/${requestId}`, {
+      const res = await fetch(apiUrl(`/api/join/reject/${requestId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hofId: user?.id, note: "Request declined" }),
@@ -181,7 +255,7 @@ export default function Family() {
   // Add family member mutation
   const addMemberMutation = useMutation({
     mutationFn: async (member: { name: string; relationship: string }) => {
-      const res = await fetch("/api/family", {
+      const res = await fetch(apiUrl("/api/family"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user?.id, ...member }),
@@ -200,7 +274,7 @@ export default function Family() {
   // Delete family member mutation
   const deleteMemberMutation = useMutation({
     mutationFn: async (memberId: number) => {
-      const res = await fetch(`/api/family/${memberId}`, { method: "DELETE" });
+      const res = await fetch(apiUrl(`/api/family/${memberId}`), { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
       return res.json();
     },

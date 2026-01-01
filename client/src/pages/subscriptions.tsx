@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
 import { Plus, Trash2, Bell, BellOff, CreditCard, Calendar, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/api-config";
 
 interface Subscription {
     id: number;
@@ -57,7 +58,7 @@ export default function Subscriptions() {
         queryKey: ["subscriptions", user?.id],
         queryFn: async () => {
             if (!user?.id) return [];
-            const res = await fetch(`/api/subscriptions/${user.id}`);
+            const res = await fetch(apiUrl(`/api/subscriptions/${user.id}`));
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
             return data.subscriptions || [];
@@ -68,7 +69,7 @@ export default function Subscriptions() {
     // Create mutation
     const createMutation = useMutation({
         mutationFn: async (sub: Partial<Subscription>) => {
-            const res = await fetch("/api/subscriptions", {
+            const res = await fetch(apiUrl("/api/subscriptions"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sub),
@@ -82,15 +83,17 @@ export default function Subscriptions() {
             resetForm();
             toast({ title: "Added!", description: "Subscription added successfully" });
         },
-        onError: () => {
-            toast({ title: "Error", description: "Failed to add subscription", variant: "destructive" });
+        onError: (error: any) => {
+            console.error("Subscription creation failed:", error);
+            const errorMessage = error?.message || "Failed to add subscription. Please try again.";
+            toast({ title: "Error", description: errorMessage, variant: "destructive" });
         }
     });
 
     // Update mutation
     const updateMutation = useMutation({
         mutationFn: async ({ id, data }: { id: number; data: Partial<Subscription> }) => {
-            const res = await fetch(`/api/subscriptions/${id}`, {
+            const res = await fetch(apiUrl(`/api/subscriptions/${id}`), {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data),
@@ -106,7 +109,7 @@ export default function Subscriptions() {
     // Delete mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: number) => {
-            const res = await fetch(`/api/subscriptions/${id}`, { method: "DELETE" });
+            const res = await fetch(apiUrl(`/api/subscriptions/${id}`), { method: "DELETE" });
             if (!res.ok) throw new Error("Failed to delete");
             return res.json();
         },
@@ -126,13 +129,32 @@ export default function Subscriptions() {
     };
 
     const handleAddSubscription = () => {
-        if (!user?.id) return;
-
-        const name = selectedTemplate?.name === "Other" ? customName : selectedTemplate?.name;
-        if (!name || !amount) {
-            toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+        if (!user?.id) {
+            toast({ title: "Error", description: "Please log in to add subscriptions", variant: "destructive" });
             return;
         }
+
+        const name = selectedTemplate?.name === "Other" ? customName.trim() : selectedTemplate?.name;
+
+        // Validate required fields
+        if (!name) {
+            toast({ title: "Missing Name", description: "Please select a subscription or enter a custom name", variant: "destructive" });
+            return;
+        }
+
+        if (!amount || parseInt(amount) <= 0) {
+            toast({ title: "Invalid Amount", description: "Please enter a valid monthly amount", variant: "destructive" });
+            return;
+        }
+
+        // Log for debugging
+        console.log("Creating subscription:", {
+            userId: user.id,
+            name,
+            amount: parseInt(amount),
+            dueDate: dueDate ? parseInt(dueDate) : undefined,
+            category: selectedTemplate?.category || "other",
+        });
 
         createMutation.mutate({
             userId: user.id,
@@ -142,7 +164,7 @@ export default function Subscriptions() {
             category: selectedTemplate?.category || "other",
             icon: selectedTemplate?.icon || "📺",
             isActive: true,
-            reminderDays: parseInt(reminderDays),
+            reminderDays: parseInt(reminderDays) || 3,
             notifyOnRenewal,
         });
     };

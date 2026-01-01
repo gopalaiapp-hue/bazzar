@@ -10,7 +10,7 @@ import {
   ChevronRight, Trash2, Shield, Moon, Sun, Palette,
   FileText, Database, AlertTriangle, EyeOff, Clock,
   Globe, MessageCircle, Info, Cloud, TrendingUp, ChevronDown,
-  Wallet, ArrowUpRight, ArrowDownLeft, Mail, AlertCircle
+  Wallet, ArrowUpRight, ArrowDownLeft, Mail, AlertCircle, Check
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -19,12 +19,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountTypeDetailsSheet } from "@/components/ui/account-type-details-sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { resendVerificationEmail } from "@/lib/supabaseApi";
+import { supabase } from "@/lib/supabaseClient";
+import { apiUrl } from "@/lib/api-config";
 
 
 
@@ -37,7 +40,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["pockets", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/pockets/${userId}`);
+      const res = await fetch(apiUrl(`/api/pockets/${userId}`));
       if (!res.ok) throw new Error("Failed to fetch pockets");
       const data = await res.json();
       return data.pockets || [];
@@ -50,7 +53,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["goals", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/goals/${userId}`);
+      const res = await fetch(apiUrl(`/api/goals/${userId}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.goals || [];
@@ -63,7 +66,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["lena-dena", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/lenadena/${userId}`);
+      const res = await fetch(apiUrl(`/api/lenadena/${userId}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.entries || [];
@@ -345,15 +348,7 @@ export default function Profile() {
   // Now we simply render different UI states based on auth status.
 
   // Show loading spinner
-  if (isUserLoading) {
-    return (
-      <MobileShell>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      </MobileShell>
-    );
-  }
+
 
   // Robust ID check
   const userId = user?.id || session?.user?.id;
@@ -387,6 +382,8 @@ export default function Profile() {
   const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   const [tempFamilyType, setTempFamilyType] = useState<"mai_sirf" | "couple" | "joint" | null>(user?.familyType || null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsType, setDetailsType] = useState<"mai_sirf" | "couple" | "joint" | null>(null);
 
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [banks, setBanks] = useState([
@@ -428,7 +425,7 @@ export default function Profile() {
     queryKey: ["family", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/family/${userId}`);
+      const res = await fetch(apiUrl(`/api/family/${userId}`));
       if (!res.ok) throw new Error("Failed to fetch family");
       const data = await res.json();
       return data.members;
@@ -438,7 +435,7 @@ export default function Profile() {
 
   const addFamilyMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch("/api/family", {
+      const res = await fetch(apiUrl("/api/family"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...data, userId: user?.id, income: parseInt(data.income) || 0 })
@@ -459,19 +456,51 @@ export default function Profile() {
 
   const updateUserMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch(`/api/users/${user?.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to update settings");
-      return res.json();
+      console.log("Updating user directly in Supabase:", user?.id, "Data:", data);
+
+      // Get Supabase session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated - please sign in");
+      }
+
+      // Transform camelCase to snake_case for Supabase
+      const transformedData: any = {};
+      if (data.familyType !== undefined) transformedData.family_type = data.familyType;
+      if (data.language !== undefined) transformedData.language = data.language;
+      if (data.name !== undefined) transformedData.name = data.name;
+      if (data.settings !== undefined) transformedData.settings = data.settings;
+      if (data.incomeSources !== undefined) transformedData.income_sources = data.incomeSources;
+      if (data.isMarried !== undefined) transformedData.is_married = data.isMarried;
+      if (data.hasParents !== undefined) transformedData.has_parents = data.hasParents;
+      if (data.hasSideIncome !== undefined) transformedData.has_side_income = data.hasSideIncome;
+      if (data.onboardingStep !== undefined) transformedData.onboarding_step = data.onboardingStep;
+      if (data.onboardingComplete !== undefined) transformedData.onboarding_complete = data.onboardingComplete;
+
+      console.log("Transformed data for Supabase:", transformedData);
+
+      // Update Supabase directly (no backend API call)
+      const { data: updatedUser, error } = await supabase
+        .from('users')
+        .update(transformedData)
+        .eq('id', user?.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Supabase update error:", error);
+        throw new Error(error.message || "Failed to update settings");
+      }
+
+      console.log("Supabase updated successfully:", updatedUser);
+      return { user: updatedUser };
     },
     onSuccess: async () => {
       await refreshUser();
       toast({ title: "Settings Updated" });
     },
-    onError: () => {
+    onError: (err) => {
+      console.error("Mutation error:", err);
       toast({ title: "Error", description: "Failed to update settings", variant: "destructive" });
     }
   });
@@ -517,8 +546,35 @@ export default function Profile() {
 
   const handleSaveAccountType = () => {
     if (!tempFamilyType) return;
-    updateUserMutation.mutate({ familyType: tempFamilyType });
-    setAccountTypeOpen(false);
+    if (!user?.id) {
+      toast({
+        title: "Not Logged In",
+        description: "Please sign in to change account type",
+        variant: "destructive"
+      });
+      return;
+    }
+    updateUserMutation.mutate(
+      { familyType: tempFamilyType },
+      {
+        onSuccess: async () => {
+          await refreshUser();
+          setAccountTypeOpen(false);
+          toast({
+            title: "Account Type Updated",
+            description: `Changed to ${getFamilyTypeLabel(tempFamilyType)}`
+          });
+        },
+        onError: (error: any) => {
+          console.error("Account type update error:", error);
+          toast({
+            title: "Update Failed",
+            description: error?.message || "Could not change account type. Please try again.",
+            variant: "destructive"
+          });
+        }
+      }
+    );
   };
 
   const getFamilyTypeLabel = (type: "mai_sirf" | "couple" | "joint" | null) => {
@@ -658,9 +714,12 @@ export default function Profile() {
   const [inviteLoading, setInviteLoading] = useState(false);
 
   const handleGenerateInvite = async () => {
+
+    // Show loading spinner (moved here to prevent hook errors)
+
     setInviteLoading(true);
     try {
-      const res = await fetch("/api/auth/invite/generate", {
+      const res = await fetch(apiUrl("/api/auth/invite/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user?.id }),
@@ -678,6 +737,17 @@ export default function Profile() {
       setInviteLoading(false);
     }
   };
+
+  // Show loading spinner safely after all hooks
+  if (isUserLoading) {
+    return (
+      <MobileShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </MobileShell>
+    );
+  }
 
   return (
     <MobileShell>
@@ -1284,14 +1354,31 @@ export default function Profile() {
                       <div
                         key={type.id}
                         onClick={() => setTempFamilyType(type.id as any)}
-                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${tempFamilyType === type.id ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
+                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all relative ${tempFamilyType === type.id ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
                       >
+                        {tempFamilyType === type.id && (
+                          <div className="absolute top-2 right-2 bg-blue-600 rounded-full p-0.5">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
                         <div className="flex items-center gap-4">
                           <span className="text-3xl">{type.icon}</span>
-                          <div>
+                          <div className="flex-1">
                             <h3 className="font-bold text-gray-900">{type.label}</h3>
                             <p className="text-xs text-gray-500">{type.desc}</p>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailsType(type.id as any);
+                              setDetailsOpen(true);
+                            }}
+                          >
+                            <Info className="w-5 h-5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1302,6 +1389,16 @@ export default function Profile() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              {/* Account Type Details Sheet */}
+              {detailsType && (
+                <AccountTypeDetailsSheet
+                  type={detailsType}
+                  open={detailsOpen}
+                  onOpenChange={setDetailsOpen}
+                  onSelect={() => setTempFamilyType(detailsType)}
+                />
+              )}
             </div>
           </section>
 

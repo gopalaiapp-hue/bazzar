@@ -11,12 +11,14 @@ import { useUser } from "@/context/UserContext";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/api-config";
 
 // FairShare Components
 import { CoupleComparisonCard } from "@/components/ui/couple-comparison-card";
 import { FairnessScoreCard } from "@/components/ui/fairness-score-card";
 import { PointsCard } from "@/components/ui/points-card";
 import { RewardTierCard } from "@/components/ui/reward-tier-card";
+import { CustomRewardDialog, type CustomReward } from "@/components/ui/custom-reward-dialog";
 
 // FairShare utilities & types
 import {
@@ -51,7 +53,7 @@ export default function Couple() {
     queryKey: ["linkedMembers", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(`/api/members/${user.id}`);
+      const res = await fetch(apiUrl(`/api/members/${user.id}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.members || [];
@@ -64,7 +66,7 @@ export default function Couple() {
     queryKey: ["familyMembers", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(`/api/family/${user.id}`);
+      const res = await fetch(apiUrl(`/api/family/${user.id}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.members || [];
@@ -97,6 +99,34 @@ export default function Couple() {
     }
     return { ...DEFAULT_FAIRSHARE_SETTINGS, partnerName: partner?.name || "Partner" };
   });
+
+  // Custom rewards state
+  const [customRewards, setCustomRewards] = useState<CustomReward[]>(() => {
+    if (user?.id) {
+      const stored = localStorage.getItem(`custom_rewards_${user.id}`);
+      return stored ? JSON.parse(stored) : [];
+    }
+    return [];
+  });
+  const [showCustomRewardDialog, setShowCustomRewardDialog] = useState(false);
+
+  // Save custom reward
+  const handleSaveCustomReward = (reward: CustomReward) => {
+    const updated = [...customRewards, reward];
+    setCustomRewards(updated);
+    if (user?.id) {
+      localStorage.setItem(`custom_rewards_${user.id}`, JSON.stringify(updated));
+    }
+  };
+
+  // Remove custom reward
+  const handleRemoveCustomReward = (rewardId: string) => {
+    const updated = customRewards.filter(r => r.id !== rewardId);
+    setCustomRewards(updated);
+    if (user?.id) {
+      localStorage.setItem(`custom_rewards_${user.id}`, JSON.stringify(updated));
+    }
+  };
 
 
 
@@ -140,12 +170,25 @@ export default function Couple() {
     };
   }, [user]);
 
-  // Generate partner data (use real data if available, else mock)
+  // Generate partner data (use real data if available, else zeros)
   const partnerSummary = useMemo<MonthlySummary>(() => {
     const partnerName = partner?.name || settings.partnerName;
-    // TODO: In future, fetch real partner transactions from API
-    // For now, generate mock based on user's data with partner name
-    return generateMockPartnerSummary(userSummary, partnerName);
+    const currentMonth = getCurrentMonth();
+
+    // TODO: Fetch real partner transactions from API when partner joins
+    // For now, return zero values instead of mock data
+    return {
+      userId: partner?.id || "partner",
+      userName: partnerName,
+      month: currentMonth,
+      income: 0,
+      totalSpent: 0,
+      savings: 0,
+      savingsRate: 0,
+      sharedSpent: 0,
+      personalSpent: 0,
+      savingsGoal: 0
+    };
   }, [userSummary, partner, settings.partnerName]);
 
   // Calculate comparison and points
@@ -243,16 +286,16 @@ export default function Couple() {
             <CoupleComparisonCard comparison={comparison} />
             <FairnessScoreCard score={comparison.fairnessIndex} />
 
-            {/* Trip Goal Card */}
-            <div className="bg-white p-3 pb-6 rounded-sm shadow-xl rotate-1 mx-auto max-w-[280px] border border-gray-200">
-              <div className="aspect-square bg-gray-100 mb-3 overflow-hidden rounded-sm">
-                <img src={generatedPolaroid} className="w-full h-full object-cover" alt="Couple" />
+            {/* Trip Goal Card - Empty State */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-100 text-center">
+              <div className="mb-2">
+                <p className="text-4xl">🎯</p>
               </div>
-              <p className="text-center font-handwriting text-lg text-gray-600 font-bold">Italy Trip Dec 2026 🇮🇹</p>
-              <div className="mt-2 w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                <div className="bg-green-500 h-full w-[54%]" />
-              </div>
-              <p className="text-center text-[10px] text-gray-400 mt-1">₹3.8L / ₹7L Saved</p>
+              <h3 className="font-bold text-gray-700 mb-1">No Shared Goals Yet</h3>
+              <p className="text-xs text-gray-500 mb-3">Create a savings goal together!</p>
+              <Button size="sm" variant="outline" className="text-blue-600 border-blue-200">
+                Create Goal
+              </Button>
             </div>
           </TabsContent>
 
@@ -314,7 +357,7 @@ export default function Couple() {
               </div>
             </div>
 
-            {/* Shaadi Gift Vault */}
+            {/* Shaadi Gift Vault - Empty State */}
             <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-4 rounded-2xl border border-orange-100">
               <div className="flex items-center gap-3 mb-3">
                 <div className="h-10 w-10 bg-white rounded-full flex items-center justify-center text-orange-500 shadow-sm">
@@ -325,17 +368,18 @@ export default function Couple() {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white/50 p-2 rounded-lg">
                   <p className="text-[10px] text-orange-700 uppercase font-bold">Received</p>
-                  <p className="font-bold text-orange-900">₹4.2L</p>
+                  <p className="font-bold text-orange-900">₹0</p>
                 </div>
                 <div className="bg-white/50 p-2 rounded-lg">
                   <p className="text-[10px] text-orange-700 uppercase font-bold">Spent</p>
-                  <p className="font-bold text-orange-900">₹2.8L</p>
+                  <p className="font-bold text-orange-900">₹0</p>
                 </div>
                 <div className="bg-white p-2 rounded-lg shadow-sm border border-orange-100">
                   <p className="text-[10px] text-green-700 uppercase font-bold">Saved</p>
-                  <p className="font-bold text-green-700">₹1.4L</p>
+                  <p className="font-bold text-green-700">₹0</p>
                 </div>
               </div>
+              <p className="text-xs text-center text-gray-500 mt-3">Track wedding gifts and expenses here</p>
             </div>
           </TabsContent>
 
@@ -353,6 +397,62 @@ export default function Couple() {
               progressPct={tierProgress.progressPct}
               onClaimReward={handleClaimReward}
             />
+
+            {/* Custom Rewards Section */}
+            <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-gray-700">Custom Rewards</h3>
+                <Button
+                  size="sm"
+                  onClick={() => setShowCustomRewardDialog(true)}
+                  className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white"
+                >
+                  <Gift className="w-4 h-4 mr-1" />
+                  Add Reward
+                </Button>
+              </div>
+
+              {customRewards.length === 0 ? (
+                <div className="text-center py-6 text-gray-400">
+                  <p className="text-sm">No custom rewards yet</p>
+                  <p className="text-xs mt-1">Create your own personalized rewards!</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {customRewards.map((reward) => (
+                    <div
+                      key={reward.id}
+                      className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100"
+                    >
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-gray-900">{reward.name}</p>
+                        {reward.description && (
+                          <p className="text-xs text-gray-600 mt-0.5">{reward.description}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-bold text-purple-600">
+                            {reward.pointsRequired} points
+                          </span>
+                          {cumulativePoints >= reward.pointsRequired && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                              ✓ Unlocked!
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveCustomReward(reward.id)}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {/* Settings Tab */}
@@ -433,6 +533,13 @@ export default function Couple() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Custom Reward Dialog */}
+      <CustomRewardDialog
+        open={showCustomRewardDialog}
+        onOpenChange={setShowCustomRewardDialog}
+        onSave={handleSaveCustomReward}
+      />
     </MobileShell>
   );
 }

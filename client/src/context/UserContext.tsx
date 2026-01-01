@@ -24,6 +24,7 @@ type UserContextType = {
     supabaseUser: SupabaseUser | null;
     session: Session | null;
     isLoading: boolean;
+    isSessionValidated: boolean;
     familyType: "mai_sirf" | "couple" | "joint" | null;
     login: (user: User) => void;
     logout: () => Promise<void>;
@@ -37,13 +38,42 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
     const [session, setSession] = useState<Session | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSessionValidated, setIsSessionValidated] = useState(false);
     const [, setLocation] = useLocation();
     const { toast } = useToast();
 
-    // Fetch user profile from our users table
+    // Fetch user profile from our users table - auto-create if missing
     const fetchUserProfile = async (userId: string, authUser?: SupabaseUser | null) => {
         try {
-            const profile = await getUserById(userId);
+            let profile = await getUserById(userId);
+
+            // CRITICAL FIX: If profile doesn't exist, create it from auth user data
+            if (!profile && authUser) {
+                console.log("Profile not found, auto-creating for user:", userId);
+                try {
+                    profile = await createUserProfile({
+                        id: userId,
+                        email: authUser.email,
+                        name: authUser.user_metadata?.name || null,
+                        role: 'admin',
+                        onboarding_step: 0,
+                        onboarding_complete: false,
+                    });
+                    console.log("Auto-created profile:", profile);
+                } catch (createError) {
+                    console.warn("Could not auto-create profile:", createError);
+                    // Create a minimal user object from auth data
+                    profile = {
+                        id: userId,
+                        email: authUser.email || null,
+                        name: authUser.user_metadata?.name || null,
+                        familyType: null,
+                        onboardingStep: 0,
+                        role: 'admin',
+                    } as any;
+                }
+            }
+
             if (profile) {
                 // Add email verification status from auth user
                 const emailVerified = authUser?.email_confirmed_at != null;
@@ -51,6 +81,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             }
         } catch (error) {
             console.error("Failed to fetch user profile:", error);
+            // Even if profile fetch fails, set minimal user from auth
+            if (authUser) {
+                setUser({
+                    id: userId,
+                    email: authUser.email || null,
+                    name: authUser.user_metadata?.name || null,
+                    familyType: null,
+                    onboardingStep: 0,
+                } as User);
+            }
         }
     };
 
@@ -60,13 +100,47 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
         // Get initial session with timeout and error handling
         const initAuth = async () => {
+            console.log("[UserContext] Initializing auth state...");
             try {
+                // First, try to get the persisted session
                 const { data: { session }, error } = await supabase.auth.getSession();
 
                 if (error) {
-                    console.error("Auth session error:", error);
+                    console.error("[UserContext] Auth session error:", error);
+                    setIsSessionValidated(true);
                     setIsLoading(false);
                     return;
+                }
+
+                console.log("[UserContext] Session retrieved:", session ? `User: ${session.user.id}` : "No session");
+
+                // If we have a session, also verify it's still valid by refreshing
+                if (session) {
+                    console.log("[UserContext] Validating session...");
+                    const { data: { user: refreshedUser }, error: refreshError } = await supabase.auth.getUser();
+
+                    if (refreshError) {
+                        console.warn("[UserContext] Session refresh failed:", refreshError.message);
+
+                        // IMPORTANT: Only clear session if it's strictly an Auth error (token expired/invalid)
+                        // Do NOT clear on network errors (fetch failed), as we want to allow offline access
+                        const isNetworkError = refreshError.message.toLowerCase().includes('fetch') ||
+                            refreshError.message.toLowerCase().includes('network');
+
+                        if (!isNetworkError) {
+                            console.log("[UserContext] Invalid session, clearing...");
+                            setSession(null);
+                            setSupabaseUser(null);
+                            setIsSessionValidated(true);
+                        } else {
+                            console.log("[UserContext] Network error during validation, keeping potentially valid session");
+                            // Still mark as validated even with network error - we'll use cached session
+                            setIsSessionValidated(true);
+                        }
+                    } else {
+                        console.log("[UserContext] Session validated successfully for user:", refreshedUser?.id);
+                        setIsSessionValidated(true);
+                    }
                 }
 
                 setSession(session);
@@ -74,18 +148,28 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
                 if (session?.user) {
                     try {
+                        console.log("[UserContext] Fetching user profile...");
                         await fetchUserProfile(session.user.id, session.user);
+                        console.log("[UserContext] User profile loaded successfully");
                     } catch (profileError) {
-                        console.error("Profile fetch error:", profileError);
+                        console.error("[UserContext] Profile fetch error:", profileError);
                     }
                 }
+
+                // If no session, mark as validated immediately
+                if (!session) {
+                    setIsSessionValidated(true);
+                }
             } catch (error) {
-                console.error("Auth initialization error:", error);
+                console.error("[UserContext] Auth initialization error:", error);
+                setIsSessionValidated(true);
             } finally {
                 // Always set loading to false after attempt
+                console.log("[UserContext] Auth initialization complete, validated:", isSessionValidated);
                 setIsLoading(false);
             }
         };
+
 
         // Add a 5-second timeout fallback to prevent infinite loading
         const timeout = setTimeout(() => {
@@ -168,6 +252,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 supabaseUser,
                 session,
                 isLoading,
+                isSessionValidated,
                 familyType: user?.familyType || null,
                 login,
                 logout,

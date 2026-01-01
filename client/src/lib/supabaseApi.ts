@@ -1,5 +1,6 @@
 // Supabase API service - replaces all Replit API calls
 import { supabase } from './supabaseClient';
+import { apiUrl } from './api-config';
 
 // ============ AUTH ============
 
@@ -11,28 +12,27 @@ export async function signUp(email: string, password: string) {
 
 export async function checkEmailExists(email: string): Promise<boolean> {
     try {
-        // Try to sign in with a dummy password to check if email exists
-        // This is a workaround since Supabase doesn't provide direct email check
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password: '__check_only__'
-        });
+        // Query the users table directly to check if email exists
+        // This is more reliable than the dummy-password approach which can't 
+        // distinguish between non-existent and existing emails
+        const { data, error } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email.trim().toLowerCase())
+            .maybeSingle();
 
-        // If error message contains "Invalid", email exists but password wrong
-        if (error && error.message.toLowerCase().includes('invalid')) {
-            return true;
+        if (error) {
+            console.warn('Error checking email existence:', error);
+            return false;
         }
 
-        // If error says email not confirmed or other auth errors, email exists
-        if (error && !error.message.toLowerCase().includes('not found')) {
-            return true;
-        }
-
-        return false;
+        return !!data;
     } catch (error) {
+        console.error('checkEmailExists error:', error);
         return false;
     }
 }
+
 
 export async function signIn(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -46,18 +46,28 @@ export async function signOut() {
 }
 
 export async function resetPasswordForEmail(email: string) {
+    // Always use production URL - never use window.location.origin
+    // as it returns localhost in mobile/Capacitor builds
+    // 
+    // IMPORTANT: For this to work, you MUST configure the following in Supabase Dashboard:
+    // 1. Go to Authentication -> URL Configuration
+    // 2. Set Site URL to: https://shakosh.vercel.app
+    // 3. Add to Redirect URLs: https://shakosh.vercel.app/reset-password
+    // 
+    // Without this configuration, Supabase will redirect to localhost!
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://bazaarbudget.app/reset-password', // Deep link will be handled by app
+        redirectTo: 'https://shakosh.vercel.app/reset-password',
     });
     if (error) throw new Error(error.message);
 }
+
 
 export async function resendVerificationEmail(email: string) {
     const { error } = await supabase.auth.resend({
         type: 'signup',
         email: email,
         options: {
-            emailRedirectTo: 'https://bazaarbudget.app/auth/callback'
+            emailRedirectTo: 'https://shakosh.vercel.app/auth/callback'
         }
     });
     if (error) throw new Error(error.message);
@@ -77,13 +87,75 @@ export async function getSession() {
 // ============ USERS ============
 
 export async function getUserById(userId: string) {
-    const { data, error } = await supabase
+    // Try fetching from internal API first (primary source of truth for this app)
+    try {
+        const res = await fetch(apiUrl(`/api/users/${userId}`));
+        if (res.ok) {
+            const rawData = await res.json();
+            return {
+                id: rawData.id,
+                email: rawData.email,
+                phone: rawData.phone,
+                name: rawData.name,
+                hashedPassword: rawData.hashed_password,
+                language: rawData.language,
+                familyType: rawData.family_type,
+                incomeSources: rawData.income_sources,
+                isMarried: rawData.is_married,
+                hasParents: rawData.has_parents,
+                hasSideIncome: rawData.has_side_income,
+                onboardingStep: rawData.onboarding_step,
+                onboardingComplete: rawData.onboarding_complete,
+                settings: rawData.settings,
+                role: rawData.role,
+                linkedAdminId: rawData.linked_admin_id,
+                lastActiveAt: rawData.last_active_at,
+                createdAt: rawData.created_at,
+            };
+        }
+        if (res.status === 404) {
+            console.warn(`getUserById API 404 for ${userId}. Falling back to Supabase...`);
+        } else {
+            console.warn(`getUserById API error: ${res.status}`);
+        }
+    } catch (e) {
+        console.error("getUserById fetch failed:", e);
+    }
+
+    // Fallback to Supabase direct query
+    const { data: rawData, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
         .maybeSingle();
+
     if (error) throw new Error(error.message);
-    return data;
+
+    if (rawData) {
+        // Map snake_case to camelCase strictly matching Drizzle Schema
+        return {
+            id: rawData.id,
+            email: rawData.email,
+            phone: rawData.phone,
+            name: rawData.name,
+            hashedPassword: rawData.hashed_password,
+            language: rawData.language,
+            familyType: rawData.family_type,
+            incomeSources: rawData.income_sources,
+            isMarried: rawData.is_married,
+            hasParents: rawData.has_parents,
+            hasSideIncome: rawData.has_side_income,
+            onboardingStep: rawData.onboarding_step,
+            onboardingComplete: rawData.onboarding_complete,
+            settings: rawData.settings,
+            role: rawData.role,
+            linkedAdminId: rawData.linked_admin_id,
+            lastActiveAt: rawData.last_active_at,
+            createdAt: rawData.created_at,
+        };
+    }
+
+    return null;
 }
 
 export async function updateUser(userId: string, updates: any) {

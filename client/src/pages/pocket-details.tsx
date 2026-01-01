@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, TrendingUp, Calendar, Target } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PocketCard } from "@/components/ui/pocket-card";
 import { TransactionList } from "@/components/ui/transaction-list";
+import { apiUrl } from "@/lib/api-config";
 
 export default function PocketDetails() {
     const [match, params] = useRoute("/pocket/:id");
@@ -17,7 +18,7 @@ export default function PocketDetails() {
     const { data: pocket, isLoading: pocketLoading } = useQuery({
         queryKey: ["pocket", pocketId],
         queryFn: async () => {
-            const res = await fetch(`/api/pockets/${pocketId}`); // Need to ensure this endpoint exists or returns single pocket
+            const res = await fetch(apiUrl(`/api/pockets/${pocketId}`)); // Need to ensure this endpoint exists or returns single pocket
             // Actually /api/pockets/:userId returns all pockets. 
             // We might need to fetch all and filter, or add a specific endpoint.
             // For now, let's assume we can fetch all and filter client side if needed, 
@@ -31,7 +32,7 @@ export default function PocketDetails() {
 
             // Let's just try to fetch /api/pockets/detail/${pocketId} and if it fails, handle it.
             // Actually, standard REST is /api/pockets/:id.
-            const response = await fetch(`/api/pockets/detail/${pocketId}`);
+            const response = await fetch(apiUrl(`/api/pockets/detail/${pocketId}`));
             if (!response.ok) throw new Error("Failed to fetch pocket");
             return response.json();
         },

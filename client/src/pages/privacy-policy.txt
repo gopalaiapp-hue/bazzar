@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
             </button>
             <h1 className="text-2xl font-heading font-bold">Privacy Policy</h1>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Last Updated: Nov 29, 2025</p>
+          <p className="text-xs text-muted-foreground mt-2">Last Updated: December 19, 2025</p>
         </div>
 
         {/* Content */}
@@ -61,7 +61,7 @@ export default function PrivacyPolicy() {
           <section className="space-y-3">
             <h2 className="text-lg font-bold">4. Data Security</h2>
             <p className="text-sm text-gray-700">
-              We use industry-standard encryption (SSL/TLS) to protect your data during transmission. Your financial data is stored securely on encrypted servers with access controls and regular backups. However, no method of transmission over the internet is 100% secure.
+              We use industry-standard encryption (SSL/TLS) to protect your data during transmission. Your data is stored securely using Supabase, a SOC 2 Type 2 certified platform with enterprise-grade security. All data is encrypted at rest and in transit. We implement row-level security policies, regular backups, and access controls. However, no method of transmission over the internet is 100% secure.
             </p>
           </section>
 
@@ -80,6 +80,7 @@ export default function PrivacyPolicy() {
               We may integrate with third-party services for:
             </p>
             <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+              <li>Database & Authentication (Supabase - PostgreSQL with SSL)</li>
               <li>Payment processing (Stripe, Razorpay)</li>
               <li>Cloud storage (Google Drive for backups)</li>
               <li>Analytics (Firebase, Mixpanel)</li>
@@ -181,7 +182,7 @@ export default function PrivacyPolicy() {
               </a>
 
               <a 
-                href="https://www.bazaarbudget.in" 
+                href="https://spray-scan-43088454.figma.site/" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="block"

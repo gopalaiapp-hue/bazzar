@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import {
   ArrowUpRight, ArrowDownLeft, Plus, Calendar, Phone, Copy,
   CheckCircle2, Clock, Camera, Mic, Send, AlertTriangle, X,
-  MessageCircle, ExternalLink
+  MessageCircle, ExternalLink, HandHeart
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -27,16 +27,18 @@ interface Transaction {
   note?: string;
 }
 
-const MOCK_LANA_DENA: Transaction[] = [
-  { id: "1", type: "gave", name: "Rohan", mobile: "9876543210", upiId: "rohan@upi", amount: 5000, date: "28 Nov", dueDate: "15 Dec", status: "pending", note: "For movie tickets" },
-  { id: "2", type: "took", name: "Mom", mobile: "9876500000", amount: 10000, date: "20 Nov", dueDate: "10 Jan", status: "pending" },
-  { id: "3", type: "gave", name: "Amit (Office)", mobile: "9898989898", upiId: "amit@paytm", amount: 500, date: "15 Nov", dueDate: "16 Nov", status: "settled" },
-];
+// Mock data removed - start with empty state for real user data
+
+import { useUser } from "@/context/UserContext";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/api-config";
+import type { LenaDena } from "@shared/schema";
 
 export default function LenaDena() {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [transactions, setTransactions] = useState<Transaction[]>(MOCK_LANA_DENA);
+  const { user } = useUser();
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<"all" | "pending" | "settled">("all");
 
   // Form state for adding new IOU
@@ -51,9 +53,34 @@ export default function LenaDena() {
 
   // Settlement confirmation state
   const [settleDialogOpen, setSettleDialogOpen] = useState(false);
-  const [settlingTx, setSettlingTx] = useState<Transaction | null>(null);
+  const [settlingTx, setSettlingTx] = useState<any>(null);
   const [confirmText, setConfirmText] = useState("");
   const [settleStep, setSettleStep] = useState<1 | 2>(1);
+
+  // Fetch lena-dena entries from API
+  const { data: entries = [], isLoading } = useQuery<LenaDena[]>({
+    queryKey: ["lena-dena", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const res = await fetch(apiUrl(`/api/lena-dena/${user.id}`));
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      return data.entries || [];
+    },
+    enabled: !!user?.id
+  });
+
+  // Transform entries to Transaction format for backwards compatibility
+  const transactions = entries.map(e => ({
+    id: String(e.id),
+    type: e.type as "gave" | "took",
+    name: e.name,
+    amount: e.amount,
+    date: e.date ? new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "N/A",
+    dueDate: e.dueDate ? new Date(e.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "No due date",
+    status: e.status as "pending" | "settled",
+    note: e.notes
+  }));
 
   const totalGave = transactions.filter(t => t.type === "gave" && t.status === "pending").reduce((acc, t) => acc + t.amount, 0);
   const totalTook = transactions.filter(t => t.type === "took" && t.status === "pending").reduce((acc, t) => acc + t.amount, 0);
@@ -68,35 +95,75 @@ export default function LenaDena() {
     setNewNote("");
   };
 
+  // Create mutation
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(apiUrl("/api/lena-dena"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lena-dena"] });
+      resetForm();
+      setAddDialogOpen(false);
+      toast({
+        title: addType === "gave" ? "💸 Money Lent Recorded" : "📥 Borrowing Recorded",
+        description: newDueDate ? `Reminder set for due date` : "No due date set",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Update mutation (for settlement)
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(apiUrl(`/api/lena-dena/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lena-dena"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
   const handleAdd = () => {
-    if (!newName || !newAmount) {
+    if (!user?.id || !newName || !newAmount) {
       toast({ title: "Missing Info", description: "Name and amount are required", variant: "destructive" });
       return;
     }
 
-    const newTx: Transaction = {
-      id: Date.now().toString(),
+    if (!newDueDate) {
+      toast({ title: "Missing Info", description: "Due date is required", variant: "destructive" });
+      return;
+    }
+
+    createMutation.mutate({
+      userId: user.id,
       type: addType,
       name: newName,
-      mobile: newMobile || undefined,
-      upiId: newUpi || undefined,
       amount: parseFloat(newAmount),
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-      dueDate: newDueDate ? new Date(newDueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "No due date",
-      status: "pending",
-      note: newNote || undefined
-    };
-
-    setTransactions([newTx, ...transactions]);
-    resetForm();
-    setAddDialogOpen(false);
-    toast({
-      title: addType === "gave" ? "💸 Money Lent Recorded" : "📥 Borrowing Recorded",
-      description: newDueDate ? `Reminder set for ${newTx.dueDate}` : "No due date set",
+      dueDate: newDueDate,
+      notes: newNote || null,
     });
   };
 
-  const openSettleDialog = (tx: Transaction) => {
+  const openSettleDialog = (tx: any) => {
     setSettlingTx(tx);
     setSettleStep(1);
     setConfirmText("");
@@ -110,7 +177,7 @@ export default function LenaDena() {
     }
 
     if (settlingTx) {
-      setTransactions(transactions.map(t => t.id === settlingTx.id ? { ...t, status: "settled" } : t));
+      updateMutation.mutate({ id: parseInt(settlingTx.id), data: { status: "settled" } });
       setSettleDialogOpen(false);
       setSettlingTx(null);
       setConfirmText("");
@@ -322,8 +389,31 @@ export default function LenaDena() {
           ))}
 
           {transactions.filter(t => filter === "all" || t.status === filter).length === 0 && (
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-sm">No transactions found</p>
+            <div className="text-center py-12">
+              <div className="w-20 h-20 mx-auto bg-gradient-to-br from-orange-100 to-amber-100 rounded-full flex items-center justify-center mb-4">
+                <HandHeart className="w-10 h-10 text-orange-600" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground mb-2">No Transactions Yet</h3>
+              <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-6">
+                Start tracking money that you've lent or borrowed from friends and family. Never forget who owes what!
+              </p>
+              <div className="flex gap-3 justify-center">
+                <Button
+                  onClick={() => openAddDialog("took")}
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                  size="sm"
+                >
+                  <ArrowDownLeft className="w-4 h-4 mr-1" /> I Borrowed
+                </Button>
+                <Button
+                  onClick={() => openAddDialog("gave")}
+                  className="bg-green-600 hover:bg-green-700"
+                  size="sm"
+                >
+                  <ArrowUpRight className="w-4 h-4 mr-1" /> I Lent
+                </Button>
+              </div>
             </div>
           )}
         </div>

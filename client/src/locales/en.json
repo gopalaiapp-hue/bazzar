@@ -19,14 +19,20 @@
         "noTransactions": "No transactions yet. Add your first expense or income!",
         "noMatches": "No matches found.",
         "editExpense": "Edit Expense",
-        "addNewPocket": "Add New Pocket",
+        "addNewPocket": "Create New Pocket",
         "pocketName": "Pocket Name",
         "amount": "Amount (₹)",
         "type": "Type",
         "cancel": "Cancel",
         "createPocket": "Create Pocket",
         "notifications": "Notifications",
-        "noNewNotifications": "No new notifications"
+        "noNewNotifications": "No new notifications",
+        "whatArePockets": "What are Pockets?",
+        "pocketsExplanation": "Pockets help you organize money by source or purpose. Track cash, bank accounts, and savings separately!",
+        "createFirstPocket": "Create Your First Pocket",
+        "quickSetup": "Quick Setup",
+        "pocketNameHelper": "E.g., Cash, Salary Account, Travel Fund",
+        "startingBalanceHelper": "Amount currently available in this pocket"
     },
     "transaction": {
         "amount": "Amount (₹)",

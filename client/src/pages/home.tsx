@@ -17,6 +17,7 @@ import type { Pocket, Transaction as DbTransaction } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { notifyTransaction } from "@/lib/notificationService";
+import { apiUrl } from "@/lib/api-config";
 
 interface Transaction {
   id: string;
@@ -65,20 +66,94 @@ export default function Home() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { user } = useUser();
+  const { user, isLoading } = useUser();
   const userId = user?.id;
 
+  // AUTH GUARD: Redirect to onboarding if not logged in
+  React.useEffect(() => {
+    if (!isLoading && !user) {
+      console.log("Home: No user found, redirecting to onboarding");
+      setLocation("/");
+    }
+  }, [user, isLoading, setLocation]);
 
-  const { data: pockets = [], isLoading: pocketsLoading } = useQuery<Pocket[]>({
+
+  const { data: pockets = [], isLoading: pocketsLoading, isError: pocketsError, error: pocketsErrorDetails } = useQuery<Pocket[]>({
     queryKey: ["pockets", userId],
     queryFn: async () => {
-      if (!userId) return [];
-      const res = await fetch(`/api/pockets/${userId}`);
-      if (!res.ok) throw new Error("Failed to fetch pockets");
-      const data = await res.json();
-      return data.pockets;
+      if (!userId) {
+        console.warn("Pockets query: No userId available");
+        return [];
+      }
+
+      console.log("Fetching pockets for user:", userId);
+      try {
+        // Use Supabase directly for more reliable data fetching
+        const { supabase } = await import("@/lib/supabaseClient");
+
+        const { data, error } = await supabase
+          .from('pockets')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error("Supabase pocket fetch error:", error);
+          throw new Error(error.message);
+        }
+
+        // Transform snake_case to camelCase
+        const transformedPockets = (data || []).map((p: any) => ({
+          id: p.id,
+          userId: p.user_id,
+          name: p.name,
+          type: p.type,
+          amount: p.amount,
+          spent: p.spent,
+          targetAmount: p.target_amount,
+          deadline: p.deadline,
+          monthlyContribution: p.monthly_contribution,
+          linkedCategories: p.linked_categories,
+          icon: p.icon,
+          color: p.color,
+          createdAt: p.created_at,
+        }));
+
+        console.log("Pockets fetched successfully from Supabase:", transformedPockets.length, "pockets");
+        return transformedPockets;
+      } catch (err) {
+        console.error("Error fetching pockets from Supabase:", err);
+
+        // Fallback to backend API if Supabase fails
+        try {
+          console.log("Falling back to backend API...");
+          const res = await fetch(apiUrl(`/api/pockets/${userId}`));
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error(`Backend API error: ${res.status} - ${errorText}`);
+            throw new Error(`Failed to fetch pockets: ${res.status}`);
+          }
+
+          const data = await res.json();
+          console.log("Pockets fetched from backend:", data.pockets?.length || 0);
+          return data.pockets || [];
+        } catch (backendErr) {
+          console.error("Backend API also failed:", backendErr);
+          throw err; // Throw original Supabase error
+        }
+      }
     },
     enabled: !!userId,
+    retry: 2,
+    onError: (error) => {
+      console.error("Pockets query error:", error);
+      toast({
+        title: "Error Loading Pockets",
+        description: "Unable to load your pockets. Please check your connection and try again.",
+        variant: "destructive"
+      });
+    }
   });
 
 
@@ -295,47 +370,68 @@ export default function Home() {
   };
 
   const handleAddPocket = async () => {
-    if (!newPocketName || !newPocketAmount) {
-      toast({ title: "Required", description: "Enter name and amount", variant: "destructive" });
+    // Validate pocket name (required)
+    if (!newPocketName.trim()) {
+      toast({ title: "Required", description: "Enter a pocket name", variant: "destructive" });
       return;
     }
+
     try {
-      const pocketData: any = {
-        userId,
-        name: newPocketName,
-        amount: parseInt(newPocketAmount),
+      // Use Supabase directly for more reliable pocket creation
+      const { supabase } = await import("@/lib/supabaseClient");
+
+      // Prepare pocket data with snake_case for Supabase
+      const pocketData = {
+        user_id: userId,
+        name: newPocketName.trim(),
+        amount: parseInt(newPocketAmount) || 0,
         type: newPocketType,
         icon: newPocketIcon,
-        color: newPocketType === "savings" ? "bg-emerald-500" : "bg-blue-500"
+        color: newPocketType === "savings" ? "bg-emerald-500" :
+          newPocketType === "upi" ? "bg-purple-500" : "bg-blue-500",
+        target_amount: newPocketType === "savings" && newPocketTarget ? parseInt(newPocketTarget) : null,
+        deadline: newPocketType === "savings" && newPocketDeadline ? new Date(newPocketDeadline).toISOString() : null,
       };
 
-      // Add goal fields if it's a savings pocket
-      if (newPocketType === "savings" && newPocketTarget) {
-        pocketData.targetAmount = parseInt(newPocketTarget);
-        if (newPocketDeadline) {
-          pocketData.deadline = new Date(newPocketDeadline).toISOString();
-        }
+      console.log("Creating pocket:", pocketData);
+
+      const { data, error } = await supabase
+        .from('pockets')
+        .insert([pocketData])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Pocket creation error:", error);
+        throw new Error(error.message);
       }
 
-      const res = await fetch("/api/pockets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pocketData)
+      console.log("Pocket created successfully:", data);
+
+      // Refresh pockets list
+      queryClient.invalidateQueries({ queryKey: ["pockets"] });
+
+      // Close dialog and reset form
+      setAddPocketOpen(false);
+      setNewPocketName("");
+      setNewPocketAmount("");
+      setNewPocketTarget("");
+      setNewPocketDeadline("");
+      setNewPocketIcon("💰");
+      setNewPocketType("cash");
+
+      // Show success message
+      toast({
+        title: "✅ Pocket Created!",
+        description: `${newPocketIcon} ${newPocketName} is ready to use`
       });
-      if (res.ok) {
-        queryClient.invalidateQueries({ queryKey: ["pockets"] });
-        setAddPocketOpen(false);
-        setNewPocketName("");
-        setNewPocketAmount("");
-        setNewPocketTarget("");
-        setNewPocketDeadline("");
-        setNewPocketIcon("💰");
-        toast({ title: "Pocket Added" });
-      } else {
-        toast({ title: "Failed", description: "Could not add pocket", variant: "destructive" });
-      }
-    } catch (e) {
-      toast({ title: "Error", variant: "destructive" });
+    } catch (error: any) {
+      console.error("Pocket creation failed:", error);
+      toast({
+        title: "Failed to Create Pocket",
+        description: error.message || "Please check your connection and try again",
+        variant: "destructive"
+      });
     }
   };
 
@@ -345,7 +441,7 @@ export default function Home() {
       return;
     }
     try {
-      const res = await fetch("/api/pockets/transfer", {
+      const res = await fetch(apiUrl("/api/pockets/transfer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -373,7 +469,7 @@ export default function Home() {
 
   const handleAddMoneyToPocket = async (pocketId: number, amount: number) => {
     try {
-      const res = await fetch(`/api/pockets/${pocketId}/add`, {
+      const res = await fetch(apiUrl(`/api/pockets/${pocketId}/add`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount })
@@ -680,13 +776,17 @@ export default function Home() {
       <div className="px-6 py-6 space-y-8">
         {/* Pockets Grid */}
         <section>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">{t('home.myPockets')}</h2>
+          <div className="flex justify-between items-center mb-2">
+            <div>
+              <h2 className="text-lg font-bold">{t('home.myPockets')}</h2>
+              <p className="text-xs text-muted-foreground">Organize money by source or purpose</p>
+            </div>
             <Button
               variant="ghost"
               size="sm"
               className="text-primary h-8 px-2 text-xs font-medium"
               onClick={() => setShowTransferDialog(true)}
+              title="Move money between pockets"
             >
               Transfer
             </Button>
@@ -694,6 +794,59 @@ export default function Home() {
           {pocketsLoading ? (
             <div className="flex justify-center items-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : pocketsError ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-4xl mb-3">⚠️</div>
+              <p className="text-sm font-medium text-gray-700 mb-1">Failed to Load Pockets</p>
+              <p className="text-xs text-gray-500 mb-4">
+                {pocketsErrorDetails?.message || "Please check your connection"}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["pockets"] })}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : pockets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                <span className="text-3xl">💰</span>
+              </div>
+              <h3 className="text-sm font-bold text-gray-800 mb-2">What are Pockets?</h3>
+              <p className="text-xs text-gray-600 mb-3 max-w-[280px]">
+                Pockets help you organize money by source or purpose.
+                Track cash, bank accounts, and savings separately!
+              </p>
+
+              {/* Visual Examples */}
+              <div className="flex gap-2 mb-4">
+                <div className="bg-white px-3 py-2 rounded-lg border border-gray-200 text-center shadow-sm">
+                  <span className="text-lg">💵</span>
+                  <p className="text-[10px] text-gray-600 mt-1 font-medium">₹5,000</p>
+                  <p className="text-[8px] text-gray-400">Cash</p>
+                </div>
+                <div className="bg-white px-3 py-2 rounded-lg border border-gray-200 text-center shadow-sm">
+                  <span className="text-lg">🏦</span>
+                  <p className="text-[10px] text-gray-600 mt-1 font-medium">₹25,000</p>
+                  <p className="text-[8px] text-gray-400">Bank</p>
+                </div>
+                <div className="bg-white px-3 py-2 rounded-lg border border-gray-200 text-center shadow-sm">
+                  <span className="text-lg">🎯</span>
+                  <p className="text-[10px] text-gray-600 mt-1 font-medium">₹10,000</p>
+                  <p className="text-[8px] text-gray-400">Savings</p>
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                onClick={() => setAddPocketOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" /> Create Your First Pocket
+              </Button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
@@ -718,88 +871,145 @@ export default function Home() {
                   onClick={() => setLocation(`/pocket/${pocket.id}`)}
                 />
               ))}
-              <Dialog open={addPocketOpen} onOpenChange={setAddPocketOpen}>
-                <DialogTrigger asChild>
-                  <button className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[160px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                    <Plus className="w-6 h-6 mb-2" />
-                    <span className="text-xs font-medium">Add Pocket</span>
-                  </button>
-                </DialogTrigger>
-                <DialogContent className="max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>{t('home.addNewPocket')}</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    {/* Icon Selector */}
-                    <div className="space-y-2">
-                      <Label>Icon</Label>
-                      <div className="flex gap-2 flex-wrap">
-                        {["💰", "🏦", "💳", "✈️", "🏠", "🚗", "📱", "🎯", "💍", "🎓", "🛒", "⚡"].map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => setNewPocketIcon(emoji)}
-                            className={cn(
-                              "w-10 h-10 rounded-lg text-xl border-2 transition-all",
-                              newPocketIcon === emoji ? "border-primary bg-primary/10" : "border-gray-200"
-                            )}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('home.pocketName')}</Label>
-                      <Input placeholder="e.g. Vacation Fund" value={newPocketName} onChange={(e) => setNewPocketName(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Starting Balance</Label>
-                      <Input type="number" placeholder="0" value={newPocketAmount} onChange={(e) => setNewPocketAmount(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('home.type')}</Label>
-                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" value={newPocketType} onChange={(e) => setNewPocketType(e.target.value)}>
-                        <option value="cash">💵 Cash</option>
-                        <option value="bank">🏦 Bank Account</option>
-                        <option value="upi">📱 UPI Wallet</option>
-                        <option value="savings">🎯 Savings Goal</option>
-                      </select>
-                    </div>
-
-                    {/* Savings Goal Fields */}
-                    {newPocketType === "savings" && (
-                      <div className="bg-emerald-50 p-4 rounded-lg space-y-3 border border-emerald-100">
-                        <p className="text-xs text-emerald-700 font-medium">🎯 Savings Goal Settings</p>
-                        <div className="space-y-2">
-                          <Label className="text-xs">Target Amount</Label>
-                          <Input
-                            type="number"
-                            placeholder="e.g. 50000"
-                            value={newPocketTarget}
-                            onChange={(e) => setNewPocketTarget(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-xs">Target Date</Label>
-                          <Input
-                            type="date"
-                            value={newPocketDeadline}
-                            onChange={(e) => setNewPocketDeadline(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setAddPocketOpen(false)}>{t('home.cancel')}</Button>
-                    <Button onClick={handleAddPocket} className={newPocketType === "savings" ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-                      {t('home.createPocket')}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <button
+                onClick={() => setAddPocketOpen(true)}
+                className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center min-h-[160px] text-gray-400 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              >
+                <Plus className="w-6 h-6 mb-2" />
+                <span className="text-xs font-medium">Add Pocket</span>
+              </button>
             </div>
           )}
+
+          {/* Add Pocket Dialog - Rendered outside conditional so both empty state and grid can open it */}
+          <Dialog open={addPocketOpen} onOpenChange={setAddPocketOpen}>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{t('home.addNewPocket')}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                {/* Quick Presets */}
+                <div className="space-y-2">
+                  <Label>Quick Setup <span className="text-xs text-gray-400 font-normal">(tap to auto-fill)</span></Label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { icon: "💵", name: "Cash", type: "cash" },
+                      { icon: "💼", name: "Salary Account", type: "bank" },
+                      { icon: "🏦", name: "Savings", type: "savings" },
+                      { icon: "🏠", name: "Household", type: "cash" },
+                      { icon: "📱", name: "UPI Wallet", type: "upi" },
+                      { icon: "✈️", name: "Travel Fund", type: "savings" },
+                    ].map(preset => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => {
+                          setNewPocketIcon(preset.icon);
+                          setNewPocketName(preset.name);
+                          setNewPocketType(preset.type);
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-full text-xs border flex items-center gap-1.5 transition-all",
+                          newPocketName === preset.name
+                            ? "bg-blue-50 border-blue-300 text-blue-700"
+                            : "bg-gray-50 hover:bg-gray-100 border-gray-200"
+                        )}
+                      >
+                        <span>{preset.icon}</span> {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Icon Selector */}
+                <div className="space-y-2">
+                  <Label>Icon</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    {["💰", "💵", "🏦", "💳", "✈️", "🏠", "🚗", "📱", "🎯", "💼", "🛒", "⚡"].map(emoji => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setNewPocketIcon(emoji)}
+                        className={cn(
+                          "w-10 h-10 rounded-lg text-xl border-2 transition-all",
+                          newPocketIcon === emoji ? "border-primary bg-primary/10" : "border-gray-200 hover:border-gray-300"
+                        )}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pocket Name */}
+                <div className="space-y-2">
+                  <Label>{t('home.pocketName')}</Label>
+                  <Input
+                    placeholder="E.g., Cash, Salary Account, Travel Fund"
+                    value={newPocketName}
+                    onChange={(e) => setNewPocketName(e.target.value)}
+                  />
+                </div>
+
+                {/* Starting Balance */}
+                <div className="space-y-2">
+                  <Label>Starting Balance</Label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={newPocketAmount}
+                    onChange={(e) => setNewPocketAmount(e.target.value)}
+                  />
+                  <p className="text-[10px] text-gray-400">Amount currently available in this pocket</p>
+                </div>
+
+                {/* Type Selection */}
+                <div className="space-y-2">
+                  <Label>{t('home.type')}</Label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={newPocketType}
+                    onChange={(e) => setNewPocketType(e.target.value)}
+                  >
+                    <option value="cash">💵 Cash — Money in hand or at home</option>
+                    <option value="bank">🏦 Bank — Savings or current account</option>
+                    <option value="upi">📱 UPI — Paytm, PhonePe, GPay balance</option>
+                    <option value="savings">🎯 Goal — Save for something specific</option>
+                  </select>
+                </div>
+
+                {/* Savings Goal Fields */}
+                {newPocketType === "savings" && (
+                  <div className="bg-emerald-50 p-4 rounded-lg space-y-3 border border-emerald-100">
+                    <p className="text-xs text-emerald-700 font-medium">🎯 Savings Goal Settings</p>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Target Amount</Label>
+                      <Input
+                        type="number"
+                        placeholder="e.g. 50000"
+                        value={newPocketTarget}
+                        onChange={(e) => setNewPocketTarget(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Target Date</Label>
+                      <Input
+                        type="date"
+                        value={newPocketDeadline}
+                        onChange={(e) => setNewPocketDeadline(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddPocketOpen(false)}>{t('home.cancel')}</Button>
+                <Button onClick={handleAddPocket} className={newPocketType === "savings" ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
+                  {t('home.createPocket')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Transfer Dialog */}
           <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
@@ -816,11 +1026,15 @@ export default function Home() {
                     onChange={(e) => setTransferFrom(parseInt(e.target.value))}
                   >
                     <option value="">Select source</option>
-                    {pockets.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.icon || "💰"} {p.name} (₹{(p.amount || 0).toLocaleString()})
-                      </option>
-                    ))}
+                    {pockets.length === 0 ? (
+                      <option disabled>No pockets yet - create one first</option>
+                    ) : (
+                      pockets.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.icon || "💰"} {p.name} (₹{(p.amount || 0).toLocaleString()})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -891,6 +1105,68 @@ export default function Home() {
               <p className="font-bold text-sm">Goals</p>
               <p className="text-[10px] opacity-80">Save for your dreams</p>
             </button>
+
+            {/* Couple-specific buttons */}
+            {user?.familyType === 'couple' && (
+              <>
+                <button
+                  onClick={() => setLocation("/couple")}
+                  className="bg-gradient-to-br from-pink-500 to-pink-600 p-4 rounded-2xl text-white text-left hover:from-pink-600 hover:to-pink-700 transition-all shadow-md hover:shadow-lg group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                      <span className="text-lg">👫</span>
+                    </div>
+                  </div>
+                  <p className="font-bold text-sm">Shared Expenses</p>
+                  <p className="text-[10px] opacity-80">Track with partner</p>
+                </button>
+
+                <button
+                  onClick={() => setLocation("/lena-dena")}
+                  className="bg-gradient-to-br from-rose-400 to-rose-500 p-4 rounded-2xl text-white text-left hover:from-rose-500 hover:to-rose-600 transition-all shadow-md hover:shadow-lg group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                      <span className="text-lg">💑</span>
+                    </div>
+                  </div>
+                  <p className="font-bold text-sm">Partner Split</p>
+                  <p className="text-[10px] opacity-80">Who owes what</p>
+                </button>
+              </>
+            )}
+
+            {/* Joint Family-specific buttons */}
+            {user?.familyType === 'joint' && (
+              <>
+                <button
+                  onClick={() => setLocation("/family")}
+                  className="bg-gradient-to-br from-violet-500 to-violet-600 p-4 rounded-2xl text-white text-left hover:from-violet-600 hover:to-violet-700 transition-all shadow-md hover:shadow-lg group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                      <span className="text-lg">👨‍👩‍👧‍👦</span>
+                    </div>
+                  </div>
+                  <p className="font-bold text-sm">Family Expenses</p>
+                  <p className="text-[10px] opacity-80">Track household spending</p>
+                </button>
+
+                <button
+                  onClick={() => setLocation("/lena-dena")}
+                  className="bg-gradient-to-br from-indigo-400 to-indigo-500 p-4 rounded-2xl text-white text-left hover:from-indigo-500 hover:to-indigo-600 transition-all shadow-md hover:shadow-lg group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
+                      <span className="text-lg">🏠</span>
+                    </div>
+                  </div>
+                  <p className="font-bold text-sm">Member Contributions</p>
+                  <p className="text-[10px] opacity-80">Who paid for what</p>
+                </button>
+              </>
+            )}
           </div>
         </section>
 

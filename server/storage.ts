@@ -9,6 +9,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<schema.User | undefined>;
   createUser(user: schema.InsertUser): Promise<schema.User>;
   updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User>;
+  syncUser(user: any): Promise<schema.User>;
   hashPassword(password: string): Promise<string>;
   verifyPassword(password: string, hash: string): Promise<boolean>;
   getLinkedMembers(adminId: string): Promise<schema.User[]>;
@@ -44,11 +45,13 @@ export interface IStorage {
   getUserLenaDena(userId: string): Promise<schema.LenaDena[]>;
   createLenaDena(entry: schema.InsertLenaDena): Promise<schema.LenaDena>;
   updateLenaDena(id: number, data: Partial<schema.InsertLenaDena>): Promise<schema.LenaDena>;
+  deleteLenaDena(id: number): Promise<void>;
 
   // Budgets
   getUserBudgets(userId: string, month: string): Promise<schema.Budget[]>;
   createBudget(budget: schema.InsertBudget): Promise<schema.Budget>;
   updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget>;
+  deleteBudget(id: number): Promise<void>;
 
   // Family
   getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]>;
@@ -58,6 +61,7 @@ export interface IStorage {
   getUserGoals(userId: string): Promise<schema.Goal[]>;
   createGoal(goal: schema.InsertGoal): Promise<schema.Goal>;
   updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal>;
+  deleteGoal(id: number): Promise<void>;
 
   // Tax Data
   getTaxData(userId: string, year: string): Promise<schema.TaxData | undefined>;
@@ -85,6 +89,11 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getUserByEmail(email: string): Promise<schema.User | undefined> {
+    const result = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+    return result[0];
+  }
+
   async createUser(user: schema.InsertUser): Promise<schema.User> {
     const result = await db.insert(schema.users).values(user).returning();
     return result[0];
@@ -93,6 +102,21 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User> {
     const result = await db.update(schema.users).set(data).where(eq(schema.users.id, id)).returning();
     return result[0];
+  }
+
+  async syncUser(user: any): Promise<schema.User> {
+    // Explicit sync: Check existence, then update or insert
+    const existing = await this.getUser(user.id);
+    if (existing) {
+      console.log(`syncUser: Updating existing user ${user.id}`);
+      return await this.updateUser(user.id, user);
+    } else {
+      console.log(`syncUser: Inserting new user ${user.id}`);
+      // Force insert with ID
+      const result = await db.insert(schema.users).values(user).returning();
+      if (!result[0]) throw new Error("Sync Insert returned no data");
+      return result[0];
+    }
   }
 
   async getLinkedMembers(adminId: string): Promise<schema.User[]> {
@@ -341,6 +365,10 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async deleteLenaDena(id: number): Promise<void> {
+    await db.delete(schema.lenaDena).where(eq(schema.lenaDena.id, id));
+  }
+
   // Budgets
   async getUserBudgets(userId: string, month: string): Promise<schema.Budget[]> {
     return await db.select().from(schema.budgets)
@@ -355,6 +383,10 @@ export class DatabaseStorage implements IStorage {
   async updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget> {
     const result = await db.update(schema.budgets).set(data).where(eq(schema.budgets.id, id)).returning();
     return result[0];
+  }
+
+  async deleteBudget(id: number): Promise<void> {
+    await db.delete(schema.budgets).where(eq(schema.budgets.id, id));
   }
 
   // Family
@@ -382,6 +414,10 @@ export class DatabaseStorage implements IStorage {
   async updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal> {
     const result = await db.update(schema.goals).set(data).where(eq(schema.goals.id, id)).returning();
     return result[0];
+  }
+
+  async deleteGoal(id: number): Promise<void> {
+    await db.delete(schema.goals).where(eq(schema.goals.id, id));
   }
 
   // Auth helpers

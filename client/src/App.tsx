@@ -1,10 +1,10 @@
-import React from "react";
-import { Switch, Route } from "wouter";
+import React, { useState, useEffect } from "react";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { UserProvider } from "@/context/UserContext";
+import { UserProvider, useUser } from "@/context/UserContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { NotificationProvider } from "@/context/NotificationContext";
 import { LockScreen } from "@/components/LockScreen";
@@ -24,6 +24,8 @@ import Budgets from "@/pages/budgets";
 import Couple from "@/pages/couple";
 import PocketDetails from "@/pages/pocket-details";
 import Subscriptions from "@/pages/subscriptions";
+import ResetPassword from "@/pages/reset-password";
+import DebugPage from "@/pages/debug";
 
 function Router() {
   return (
@@ -35,28 +37,141 @@ function Router() {
       <Route path="/goals" component={Goals} />
       <Route path="/profile" component={Profile} />
       <Route path="/privacy-policy" component={PrivacyPolicy} />
-      <Route path="/lenadena" component={LenaDena} />
+      <Route path="/lena-dena" component={LenaDena} />
       <Route path="/budgets" component={Budgets} />
       <Route path="/couple" component={Couple} />
       <Route path="/pocket/:id" component={PocketDetails} />
       <Route path="/subscriptions" component={Subscriptions} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/debug" component={DebugPage} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
+/**
+ * AuthGate - Unified authentication gate component
+ * 
+ * This component handles:
+ * 1. Splash screen display during initial auth check
+ * 2. Session validation using UserContext (single source of truth)
+ * 3. Onboarding completion check
+ * 4. Routing decision: Home (if logged in + onboarding done) vs Router (signin/onboarding)
+ * 5. Capacitor app resume handling
+ */
+function AuthGate() {
+  const { user, session, isLoading, isSessionValidated, refreshUser } = useUser();
+  const [, setLocation] = useLocation();
+  const [showSplash, setShowSplash] = useState(true);
+  const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
 
-
-function App() {
-  const [showSplash, setShowSplash] = React.useState(true);
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 2000);
+  // Splash screen timer - reduced to 800ms for faster startup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 800);
     return () => clearTimeout(timer);
   }, []);
 
-  if (showSplash) return <SplashScreen />;
+  // Capacitor/Browser visibility listener for app resume (background -> foreground)
+  useEffect(() => {
+    // Handle document visibility change (works in both browser and Capacitor)
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log('AuthGate: App became visible, re-checking auth...');
+        // Reset auth check flag to allow re-checking
+        setHasCheckedAuth(false);
+        // Refresh user data
+        await refreshUser();
+      }
+    };
 
+    // Add visibility change listener
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshUser]);
+
+  // Auth check effect - runs after splash and loading are done
+  useEffect(() => {
+    // Wait for splash to finish, UserContext to complete loading, AND session to be validated
+    if (showSplash || isLoading || !isSessionValidated) {
+      console.log("AuthGate: Waiting for initialization...", { showSplash, isLoading, isSessionValidated });
+      return;
+    }
+
+    // Prevent running multiple times
+    if (hasCheckedAuth) {
+      return;
+    }
+
+    setHasCheckedAuth(true);
+
+    // Check if user is authenticated
+    const isAuthenticated = !!session?.user;
+
+    console.log("====== AuthGate: Auth Check ======");
+    console.log("Authenticated:", isAuthenticated);
+    console.log("Session User ID:", session?.user?.id);
+    console.log("User Profile ID:", user?.id);
+    console.log("User Onboarding Step:", user?.onboardingStep);
+    console.log("Session Validated:", isSessionValidated);
+
+    if (isAuthenticated) {
+      // Check onboarding completion from BOTH sources
+      const localStorageComplete = localStorage.getItem('onboarding_completed') === 'true';
+      const profileComplete = user?.onboardingStep === 99;
+
+      const isOnboardingComplete = localStorageComplete || profileComplete;
+
+      console.log("LocalStorage Onboarding:", localStorageComplete);
+      console.log("Profile Onboarding:", profileComplete);
+      console.log("Final Onboarding Status:", isOnboardingComplete);
+
+      if (isOnboardingComplete) {
+        // User is logged in and onboarding is complete - go to home
+        console.log("✅ AuthGate: Redirecting to /home (authenticated + onboarding complete)");
+        console.log("==================================");
+        setLocation("/home");
+      } else {
+        // User is logged in but onboarding not complete - stay on onboarding
+        console.log("⚠️ AuthGate: Staying on onboarding (authenticated but onboarding incomplete)");
+        console.log("==================================");
+      }
+    } else {
+      // No session - user needs to sign in
+      console.log("❌ AuthGate: No session found, showing sign in");
+      console.log("==================================");
+    }
+  }, [showSplash, isLoading, isSessionValidated, session, user, hasCheckedAuth, setLocation]);
+
+  // Sync localStorage with user profile onboarding status
+  // This ensures localStorage stays in sync if db says onboarding is complete
+  useEffect(() => {
+    if (user?.onboardingStep === 99) {
+      try {
+        localStorage.setItem('onboarding_completed', 'true');
+        if (user.id) {
+          localStorage.setItem('user_id', user.id);
+        }
+      } catch (e) {
+        console.warn('Could not sync onboarding status to localStorage:', e);
+      }
+    }
+  }, [user]);
+
+  // Show splash screen while loading or validating session
+  if (showSplash || isLoading || !isSessionValidated) {
+    return <SplashScreen />;
+  }
+
+  // Render the router - AuthGate handles redirection via setLocation
+  return <Router />;
+}
+
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -65,7 +180,7 @@ function App() {
           <ThemeProvider>
             <NotificationProvider>
               <LockScreen>
-                <Router />
+                <AuthGate />
               </LockScreen>
             </NotificationProvider>
           </ThemeProvider>
@@ -76,3 +191,4 @@ function App() {
 }
 
 export default App;
+
