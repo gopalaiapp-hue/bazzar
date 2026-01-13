@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabaseClient";
 import { getUserById, createUserProfile } from "@/lib/supabaseApi";
 import type { User as SupabaseUser, Session } from "@supabase/supabase-js";
+import { App } from '@capacitor/app'; // Native app lifecycle handling
 
 type User = {
     id: string;
@@ -114,33 +115,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
                 console.log("[UserContext] Session retrieved:", session ? `User: ${session.user.id}` : "No session");
 
-                // If we have a session, also verify it's still valid by refreshing
+                // CRITICAL: Trust the session if it exists
+                // Don't try to validate it immediately - Supabase will handle token refresh automatically
+                // Immediate validation can fail on slow networks or offline, causing false negatives
                 if (session) {
-                    console.log("[UserContext] Validating session...");
-                    const { data: { user: refreshedUser }, error: refreshError } = await supabase.auth.getUser();
-
-                    if (refreshError) {
-                        console.warn("[UserContext] Session refresh failed:", refreshError.message);
-
-                        // IMPORTANT: Only clear session if it's strictly an Auth error (token expired/invalid)
-                        // Do NOT clear on network errors (fetch failed), as we want to allow offline access
-                        const isNetworkError = refreshError.message.toLowerCase().includes('fetch') ||
-                            refreshError.message.toLowerCase().includes('network');
-
-                        if (!isNetworkError) {
-                            console.log("[UserContext] Invalid session, clearing...");
-                            setSession(null);
-                            setSupabaseUser(null);
-                            setIsSessionValidated(true);
-                        } else {
-                            console.log("[UserContext] Network error during validation, keeping potentially valid session");
-                            // Still mark as validated even with network error - we'll use cached session
-                            setIsSessionValidated(true);
-                        }
-                    } else {
-                        console.log("[UserContext] Session validated successfully for user:", refreshedUser?.id);
-                        setIsSessionValidated(true);
-                    }
+                    console.log("[UserContext] Session found, trusting it (Supabase will auto-refresh if needed)");
+                    setIsSessionValidated(true);
                 }
 
                 setSession(session);
@@ -152,7 +132,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                         await fetchUserProfile(session.user.id, session.user);
                         console.log("[UserContext] User profile loaded successfully");
                     } catch (profileError) {
-                        console.error("[UserContext] Profile fetch error:", profileError);
+                        console.error("[UserContext] Profile fetch error (non-critical):", profileError);
+                        // Don't fail auth if profile fetch fails - user is still authenticated
                     }
                 }
 
@@ -165,7 +146,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 setIsSessionValidated(true);
             } finally {
                 // Always set loading to false after attempt
-                console.log("[UserContext] Auth initialization complete, validated:", isSessionValidated);
+                console.log("[UserContext] Auth initialization complete");
                 setIsLoading(false);
             }
         };
@@ -178,20 +159,51 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             setIsLoading(false);
         }, 5000);
 
-        initAuth().then(() => clearTimeout(timeout));
+        // Initialize auth and listeners
+        const init = async () => {
+            await initAuth().then(() => clearTimeout(timeout));
 
-        // Listen for auth changes
+            // Native App Lifecycle Listener
+            // Handles "cold start" behavior when app comes from background
+            App.addListener('appStateChange', async (state) => {
+                console.log("[UserContext] App state changed:", state.isActive ? "ACTIVE" : "BACKGROUND");
+                if (state.isActive) {
+                    console.log("[UserContext] App resumed, re-verifying session...");
+                    // Re-check session on resume to fix "session lost" issues
+                    const { data: { session: resumeSession } } = await supabase.auth.getSession();
+                    if (resumeSession) {
+                        console.log("[UserContext] Valid session found on resume");
+                        setSession(resumeSession);
+                        if (!user) {
+                            await fetchUserProfile(resumeSession.user.id, resumeSession.user);
+                        }
+                    } else {
+                        console.log("[UserContext] No session on resume");
+                        // Only clear if we previously had a session AND it's invalid now
+                        // Don't auto-logout here to prevent jarring UX, let AuthGate handle it
+                    }
+                }
+            });
+        };
+
+        init();
+
+        // Listen for Supabase auth changes
         const { data } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 console.log("Auth state changed:", event);
+
                 setSession(session);
                 setSupabaseUser(session?.user ?? null);
 
                 if (event === 'SIGNED_IN' && session?.user) {
-                    await fetchUserProfile(session.user.id, session.user);
+                    // Fetch profile in background, don't await blocking the event loop
+                    fetchUserProfile(session.user.id, session.user).catch(e => console.error("Background profile fetch failed:", e));
                 } else if (event === 'SIGNED_OUT') {
                     setUser(null);
                     setLocation("/");
+                } else if (event === 'TOKEN_REFRESHED') {
+                    console.log("Token refreshed successfully");
                 }
             }
         );
@@ -200,6 +212,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         return () => {
             clearTimeout(timeout);
             subscription?.unsubscribe();
+            App.removeAllListeners(); // Cleanup native listeners
         };
     }, []);
 
@@ -234,15 +247,62 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     const logout = async () => {
         try {
-            await supabase.auth.signOut();
+            console.log("[UserContext] Starting logout...");
+
+            // 1. Sign out from Supabase first
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+                console.warn("[UserContext] Supabase signOut error:", error);
+            }
+
+            // 2. Clear user state immediately
             setUser(null);
             setSupabaseUser(null);
             setSession(null);
+
+            // 3. Clear localStorage auth data
+            try {
+                localStorage.removeItem('sb-mtdngnyatbiipyumqmdd-auth-token');
+                localStorage.removeItem('onboarding_completed');
+                localStorage.removeItem('user_id');
+                localStorage.removeItem('bazaar_remembered_email');
+                localStorage.removeItem('bazaar_remembered_pw');
+            } catch (e) {
+                console.warn("[UserContext] localStorage clear error:", e);
+            }
+
+            // 4. CRITICAL: Clear Capacitor Preferences (native storage) 
+            // This is essential for mobile APK to fully clear session
+            try {
+                const { Preferences } = await import('@capacitor/preferences');
+                const { Capacitor } = await import('@capacitor/core');
+
+                if (Capacitor.isNativePlatform()) {
+                    console.log("[UserContext] Clearing Capacitor Preferences...");
+                    // Clear the specific auth token key
+                    await Preferences.remove({ key: 'supabase_auth_sb-mtdngnyatbiipyumqmdd-auth-token' });
+                    // Also try without prefix in case of mismatch
+                    await Preferences.remove({ key: 'sb-mtdngnyatbiipyumqmdd-auth-token' });
+                    // Clear onboarding completion flags
+                    await Preferences.remove({ key: 'onboarding_completed' });
+                    await Preferences.remove({ key: 'user_id' });
+                    console.log("[UserContext] Capacitor Preferences cleared");
+                }
+            } catch (e) {
+                console.warn("[UserContext] Capacitor Preferences clear error:", e);
+            }
+
+            console.log("[UserContext] Logout complete, navigating to home");
             setLocation("/");
             toast({ title: "Logged out" });
         } catch (error) {
             console.error("Logout error:", error);
-            toast({ title: "Logout failed", variant: "destructive" });
+            // Even if there's an error, still clear local state and redirect
+            setUser(null);
+            setSupabaseUser(null);
+            setSession(null);
+            setLocation("/");
+            toast({ title: "Logged out", description: "Some data may not have been fully cleared" });
         }
     };
 

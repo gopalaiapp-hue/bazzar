@@ -14,10 +14,18 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Pocket, Transaction as DbTransaction } from "@shared/schema";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { notifyTransaction } from "@/lib/notificationService";
 import { apiUrl } from "@/lib/api-config";
+
+// Force refetch on focus
+function useFocusEffect(callback: () => void) {
+  const [location] = useLocation();
+  useEffect(() => {
+    callback();
+  }, [location, callback]);
+}
 
 interface Transaction {
   id: string;
@@ -77,6 +85,14 @@ export default function Home() {
     }
   }, [user, isLoading, setLocation]);
 
+  // Refetch data when screen comes into focus
+  useFocusEffect(React.useCallback(() => {
+    if (userId) {
+      console.log("Home focused, refreshing data...");
+      queryClient.invalidateQueries({ queryKey: ["pockets", userId] });
+      queryClient.invalidateQueries({ queryKey: ["goals", userId] }); // Ensure goals are refreshed
+    }
+  }, [userId, queryClient]));
 
   const { data: pockets = [], isLoading: pocketsLoading, isError: pocketsError, error: pocketsErrorDetails } = useQuery<Pocket[]>({
     queryKey: ["pockets", userId],
@@ -145,20 +161,24 @@ export default function Home() {
       }
     },
     enabled: !!userId,
-    retry: 2,
-    onError: (error) => {
-      console.error("Pockets query error:", error);
+    retry: 2
+  });
+
+  useEffect(() => {
+    if (pocketsError) {
+      console.error("Pockets query error:", pocketsErrorDetails);
       toast({
         title: "Error Loading Pockets",
         description: "Unable to load your pockets. Please check your connection and try again.",
         variant: "destructive"
       });
     }
-  });
+  }, [pocketsError, pocketsErrorDetails, toast]);
 
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
+  const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
@@ -722,12 +742,8 @@ export default function Home() {
               </DialogContent>
             </Dialog>
 
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button onClick={() => { setEditingId(null); setFormData({ type: "credit", amount: "", merchant: "", category: "Salary", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" }); }} className="flex-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-100 font-bold">
-                  <ArrowUpRight className="w-4 h-4 mr-2" /> {t('home.addIncome')}
-                </Button>
-              </DialogTrigger>
+            <Dialog open={incomeDialogOpen} onOpenChange={setIncomeDialogOpen}>
+              {/* Trigger removed, controlled by FAB and manual setIncomeDialogOpen */}
               <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t('transaction.addIncome')}</DialogTitle>
@@ -1106,67 +1122,7 @@ export default function Home() {
               <p className="text-[10px] opacity-80">Save for your dreams</p>
             </button>
 
-            {/* Couple-specific buttons */}
-            {user?.familyType === 'couple' && (
-              <>
-                <button
-                  onClick={() => setLocation("/couple")}
-                  className="bg-gradient-to-br from-pink-500 to-pink-600 p-4 rounded-2xl text-white text-left hover:from-pink-600 hover:to-pink-700 transition-all shadow-md hover:shadow-lg group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
-                      <span className="text-lg">👫</span>
-                    </div>
-                  </div>
-                  <p className="font-bold text-sm">Shared Expenses</p>
-                  <p className="text-[10px] opacity-80">Track with partner</p>
-                </button>
-
-                <button
-                  onClick={() => setLocation("/lena-dena")}
-                  className="bg-gradient-to-br from-rose-400 to-rose-500 p-4 rounded-2xl text-white text-left hover:from-rose-500 hover:to-rose-600 transition-all shadow-md hover:shadow-lg group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
-                      <span className="text-lg">💑</span>
-                    </div>
-                  </div>
-                  <p className="font-bold text-sm">Partner Split</p>
-                  <p className="text-[10px] opacity-80">Who owes what</p>
-                </button>
-              </>
-            )}
-
-            {/* Joint Family-specific buttons */}
-            {user?.familyType === 'joint' && (
-              <>
-                <button
-                  onClick={() => setLocation("/family")}
-                  className="bg-gradient-to-br from-violet-500 to-violet-600 p-4 rounded-2xl text-white text-left hover:from-violet-600 hover:to-violet-700 transition-all shadow-md hover:shadow-lg group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
-                      <span className="text-lg">👨‍👩‍👧‍👦</span>
-                    </div>
-                  </div>
-                  <p className="font-bold text-sm">Family Expenses</p>
-                  <p className="text-[10px] opacity-80">Track household spending</p>
-                </button>
-
-                <button
-                  onClick={() => setLocation("/lena-dena")}
-                  className="bg-gradient-to-br from-indigo-400 to-indigo-500 p-4 rounded-2xl text-white text-left hover:from-indigo-500 hover:to-indigo-600 transition-all shadow-md hover:shadow-lg group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="bg-white/20 p-2 rounded-xl group-hover:bg-white/30 transition-colors">
-                      <span className="text-lg">🏠</span>
-                    </div>
-                  </div>
-                  <p className="font-bold text-sm">Member Contributions</p>
-                  <p className="text-[10px] opacity-80">Who paid for what</p>
-                </button>
-              </>
-            )}
+            {/* Shared Expenses Shortcuts Removed as per UX Requirement - "One feature = one clear location" */}
           </div>
         </section>
 
@@ -1309,6 +1265,35 @@ export default function Home() {
             )}
           </div>
         </section>
+      </div>
+
+      {/* Floating Action Button */}
+      <div className="fixed bottom-24 right-6 z-50">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon" className="h-14 w-14 rounded-full shadow-xl bg-primary hover:bg-primary/90 transition-all hover:scale-105">
+              <Plus className="h-8 w-8 text-white" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="mb-2 w-48 bg-white/95 backdrop-blur-sm border-primary/20">
+            <DropdownMenuItem onClick={() => {
+              setEditingId(null);
+              setFormData({ ...formData, type: "debit" }); // Reset form
+              setOpenDialog(true);
+            }} className="cursor-pointer py-3 focus:bg-red-50 focus:text-red-600">
+              <ArrowDownLeft className="mr-2 h-4 w-4 text-red-500" />
+              <span className="font-semibold">{t('home.addExpense')}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              setEditingId(null);
+              setFormData({ ...formData, type: "credit" }); // Reset form
+              setIncomeDialogOpen(true);
+            }} className="cursor-pointer py-3 focus:bg-green-50 focus:text-green-600">
+              <ArrowUpRight className="mr-2 h-4 w-4 text-green-500" />
+              <span className="font-semibold">{t('home.addIncome')}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </MobileShell>
   );

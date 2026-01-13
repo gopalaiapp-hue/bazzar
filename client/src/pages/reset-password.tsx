@@ -139,8 +139,21 @@ export default function ResetPassword() {
         setLoading(true);
         setError(null);
 
+        // Failsafe: Force reset loading state after 20 seconds no matter what
+        const failsafeTimeout = setTimeout(() => {
+            console.warn("Password reset failsafe triggered - force resetting loading state");
+            setLoading(false);
+            setError("Operation timed out. Please try again.");
+            toast({
+                title: "Timeout",
+                description: "Password reset took too long. Please try again.",
+                variant: "destructive"
+            });
+        }, 20000);
+
         try {
             // 1. Refresh session to ensure we have a valid token before update
+            console.log("Checking session...");
             const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
             if (sessionError || !session) {
@@ -151,20 +164,35 @@ export default function ResetPassword() {
             console.log("Attempting password update...");
 
             // 2. Create a timeout promise (15 seconds)
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Request timed out. Please check your connection and try again.")), 15000)
-            );
+            let timeoutId: NodeJS.Timeout;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    reject(new Error("Request timed out. Please check your connection and try again."));
+                }, 15000);
+            });
 
-            // 3. Race the update against the timeout
-            const { error }: any = await Promise.race([
-                supabase.auth.updateUser({ password: newPassword }),
-                timeoutPromise
-            ]);
-
-            if (error) {
-                throw error;
+            // 3. Race the update against the timeout - wrapped in try-catch for safety
+            let updateError: any = null;
+            try {
+                const result = await Promise.race([
+                    supabase.auth.updateUser({ password: newPassword }),
+                    timeoutPromise
+                ]);
+                // Clear timeout on success
+                clearTimeout(timeoutId!);
+                updateError = (result as any)?.error;
+            } catch (raceError) {
+                clearTimeout(timeoutId!);
+                throw raceError;
             }
 
+            if (updateError) {
+                throw updateError;
+            }
+
+            // Clear failsafe and mark success
+            clearTimeout(failsafeTimeout);
+            setLoading(false);
             setSuccess(true);
             toast({
                 title: "Password Reset Successful! 🎉",
@@ -178,16 +206,17 @@ export default function ResetPassword() {
 
         } catch (error: any) {
             console.error("Password reset error:", error);
+            clearTimeout(failsafeTimeout);
+            setLoading(false);
             setError(error.message || "Failed to reset password. Please try again.");
             toast({
                 title: "Reset Failed",
                 description: error.message || "Could not reset password",
                 variant: "destructive"
             });
-        } finally {
-            setLoading(false);
         }
     };
+
 
     // Success state
     if (success) {

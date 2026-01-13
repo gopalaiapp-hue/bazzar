@@ -186,7 +186,7 @@ export default function PrivacyPolicy() {
                             </a>
 
                             <a
-                                href="https://hightech-lame-data--nitesh44.replit.app"
+                                href="https://spray-scan-43088454.figma.site/"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="block"

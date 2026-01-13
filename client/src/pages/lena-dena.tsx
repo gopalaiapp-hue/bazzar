@@ -57,30 +57,52 @@ export default function LenaDena() {
   const [confirmText, setConfirmText] = useState("");
   const [settleStep, setSettleStep] = useState<1 | 2>(1);
 
-  // Fetch lena-dena entries from API
+  // Fetch lena-dena entries from Supabase
   const { data: entries = [], isLoading } = useQuery<LenaDena[]>({
     queryKey: ["lena-dena", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(apiUrl(`/api/lena-dena/${user.id}`));
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      return data.entries || [];
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { data, error } = await supabase
+        .from('lena_dena')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('id', { ascending: false });
+
+      if (error) throw new Error(error.message);
+      return data || [];
     },
     enabled: !!user?.id
   });
 
   // Transform entries to Transaction format for backwards compatibility
-  const transactions = entries.map(e => ({
-    id: String(e.id),
-    type: e.type as "gave" | "took",
-    name: e.name,
-    amount: e.amount,
-    date: e.date ? new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "N/A",
-    dueDate: e.dueDate ? new Date(e.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "No due date",
-    status: e.status as "pending" | "settled",
-    note: e.notes
-  }));
+  // Note: mobile/UPI are stored in notes in this schema version or assumed missing
+  const transactions = entries.map(e => {
+    // Attempt to parse mobile/UPI from notes if we stored them there
+    // Format: "Mobile: xxx | UPI: xxx | Actual Note"
+    let mobile, upiId, actualNote = e.notes;
+    if (e.notes && e.notes.includes('|')) {
+      const parts = e.notes.split('|');
+      parts.forEach(p => {
+        if (p.trim().startsWith('Mobile:')) mobile = p.trim().replace('Mobile:', '').trim();
+        else if (p.trim().startsWith('UPI:')) upiId = p.trim().replace('UPI:', '').trim();
+        else actualNote = p.trim();
+      });
+    }
+
+    return {
+      id: String(e.id),
+      type: e.type as "gave" | "took",
+      name: e.name,
+      amount: e.amount,
+      mobile: mobile,
+      upiId: upiId,
+      date: e.date ? new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "N/A",
+      dueDate: e.dueDate ? new Date(e.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : "No due date",
+      status: e.status as "pending" | "settled",
+      note: actualNote || undefined
+    };
+  });
 
   const totalGave = transactions.filter(t => t.type === "gave" && t.status === "pending").reduce((acc, t) => acc + t.amount, 0);
   const totalTook = transactions.filter(t => t.type === "took" && t.status === "pending").reduce((acc, t) => acc + t.amount, 0);
@@ -98,16 +120,31 @@ export default function LenaDena() {
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch(apiUrl("/api/lena-dena"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create");
-      }
-      return res.json();
+      const { supabase } = await import("@/lib/supabaseClient");
+
+      // Combine mobile/UPI into notes
+      let details = "";
+      if (newMobile) details += `Mobile: ${newMobile} | `;
+      if (newUpi) details += `UPI: ${newUpi} | `;
+      const finalNotes = details + (data.notes || "");
+
+      const { data: newEntry, error } = await supabase
+        .from('lena_dena')
+        .insert({
+          user_id: data.userId,
+          type: data.type,
+          name: data.name,
+          amount: data.amount,
+          due_date: data.dueDate, // snake_case
+          get date() { return new Date().toISOString() }, // set current date
+          notes: finalNotes,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return newEntry;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lena-dena"] });
@@ -119,6 +156,7 @@ export default function LenaDena() {
       });
     },
     onError: (error: Error) => {
+      console.error("Lena-Dena create error:", error);
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
@@ -126,13 +164,14 @@ export default function LenaDena() {
   // Update mutation (for settlement)
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      const res = await fetch(apiUrl(`/api/lena-dena/${id}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to update");
-      return res.json();
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { error } = await supabase
+        .from('lena_dena')
+        .update(data)
+        .eq('id', id);
+
+      if (error) throw new Error(error.message);
+      return true;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lena-dena"] });
@@ -158,7 +197,7 @@ export default function LenaDena() {
       type: addType,
       name: newName,
       amount: parseFloat(newAmount),
-      dueDate: newDueDate,
+      dueDate: newDueDate ? new Date(newDueDate).toISOString() : null,
       notes: newNote || null,
     });
   };

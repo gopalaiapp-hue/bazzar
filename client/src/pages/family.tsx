@@ -153,10 +153,29 @@ export default function Family() {
     queryKey: ["familyMembers", user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
-      const res = await fetch(apiUrl(`/api/family/${user.id}`));
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      return data.members || [];
+
+      const { data, error } = await supabase
+        .from('family_members')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('id', { ascending: true });
+
+      if (error) {
+        console.error("Failed to fetch family members:", error);
+        throw new Error(error.message || "Failed to fetch family members");
+      }
+
+      // Convert snake_case to camelCase
+      return (data || []).map((member: any) => ({
+        id: member.id,
+        userId: member.user_id,
+        name: member.name,
+        relationship: member.relationship,
+        phone: member.phone,
+        income: member.income,
+        isNominee: member.is_nominee,
+        isVisible: member.is_visible
+      }));
     },
     enabled: !!user?.id
   });
@@ -255,32 +274,53 @@ export default function Family() {
   // Add family member mutation
   const addMemberMutation = useMutation({
     mutationFn: async (member: { name: string; relationship: string }) => {
-      const res = await fetch(apiUrl("/api/family"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user?.id, ...member }),
-      });
-      if (!res.ok) throw new Error("Failed to add");
-      return res.json();
+      if (!user?.id) throw new Error("User not authenticated");
+
+      // Convert camelCase to snake_case for Supabase
+      const { data, error } = await supabase
+        .from('family_members')
+        .insert({
+          user_id: user.id,
+          name: member.name,
+          relationship: member.relationship,
+          income: 0,
+          is_nominee: false
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message || "Failed to add family member");
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["familyMembers"] });
       setNewMemberName("");
       setNewMemberRelation("");
       toast({ title: "Member Added", description: "Family member added successfully" });
+    },
+    onError: (error: any) => {
+      console.error("Add family member error:", error);
+      toast({ title: "Error", description: error.message || "Failed to add family member", variant: "destructive" });
     }
   });
 
   // Delete family member mutation
   const deleteMemberMutation = useMutation({
     mutationFn: async (memberId: number) => {
-      const res = await fetch(apiUrl(`/api/family/${memberId}`), { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete");
-      return res.json();
+      const { error } = await supabase
+        .from('family_members')
+        .delete()
+        .eq('id', memberId);
+
+      if (error) throw new Error(error.message || "Failed to delete family member");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["familyMembers"] });
       toast({ title: "Removed", description: "Family member removed" });
+    },
+    onError: (error: any) => {
+      console.error("Delete family member error:", error);
+      toast({ title: "Error", description: error.message || "Failed to remove family member", variant: "destructive" });
     }
   });
 

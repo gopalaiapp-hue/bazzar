@@ -10,6 +10,7 @@ import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import { Eye, EyeOff, LockKeyhole, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { createUserProfile, updateUser, validateInviteCode as validateInviteCodeApi, createInviteCode, getInviteCodeByCreator, resetPasswordForEmail, checkEmailExists, resendVerificationEmail } from "@/lib/supabaseApi";
+import { Network } from '@capacitor/network';
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
@@ -300,89 +301,50 @@ export default function Onboarding() {
       return;
     }
 
+    // ✅ 3. Login button must ALWAYS stop loader (using try/finally)
     setLoading(true);
     setNetworkError(null);
 
-    // Create a timeout promise to prevent indefinite hangs
-    // Using 30 seconds for slow mobile networks (was 10s)
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('SIGNIN_TIMEOUT')), 30000); // 30 second timeout
-    });
+    // Keep the failsafe as a backup, but the finally block is the primary cleanup
+    const failsafeTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn("Failsafe triggered");
+        setLoading(false);
+        setNetworkError("Request timed out. Please check your connection.");
+      }
+    }, 30000);
 
     try {
+      // 1. Check Network Connectivity immediately (Fail Fast)
+      const status = await Network.getStatus();
+      if (status.connected === false) {
+        throw new Error("No internet connection. Please check your settings.");
+      }
+
       console.log("Attempting signin for:", email.trim().toLowerCase());
 
-      // Race between signin and timeout
-      const signinPromise = (async () => {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
-          password
-        });
+      // 2. Sign in with Supabase
+      // Using standard await - the finally block ensures we don't hang UI
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password
+      });
 
-        if (error) {
-          console.error("Supabase auth error:", error.message, error);
+      if (error) {
+        // Handle explicit Supabase errors
+        throw error;
+      }
 
-          // Handle specific Supabase error cases
-          const errorMsg = error.message.toLowerCase();
-
-          // Email not confirmed
-          if (errorMsg.includes("email not confirmed") || errorMsg.includes("not confirmed")) {
-            setUnverifiedEmail(email.trim().toLowerCase());
-            setShowEmailVerificationPrompt(true);
-            return null;
-          }
-
-          // Invalid credentials (wrong password or email doesn't exist)
-          if (errorMsg.includes("invalid") || errorMsg.includes("credentials")) {
-            toast({
-              title: "Invalid Credentials",
-              description: "Email or password is incorrect. Please check and try again.",
-              variant: "destructive"
-            });
-            return null;
-          }
-
-          // User not found
-          if (errorMsg.includes("not found") || errorMsg.includes("no user")) {
-            toast({
-              title: "Account Not Found",
-              description: "No account exists with this email. Please sign up first.",
-              variant: "destructive"
-            });
-            return null;
-          }
-
-          // Rate limited
-          if (errorMsg.includes("rate") || errorMsg.includes("limit") || errorMsg.includes("too many")) {
-            toast({
-              title: "Too Many Attempts",
-              description: "Please wait a few minutes before trying again.",
-              variant: "destructive"
-            });
-            return null;
-          }
-
-          // Generic error
-          throw error;
-        }
-
-        if (!data.user || !data.session) {
-          throw new Error("Signin failed - no session returned");
-        }
-
-        return data;
-      })();
-
-      const data = await Promise.race([signinPromise, timeoutPromise]) as any;
-
-      // If signin was cancelled by error handling, exit early
-      if (!data) {
-        return;
+      if (!data.user || !data.session) {
+        throw new Error("Signin failed - no session returned");
       }
 
       console.log("Signin successful, user:", data.user.id);
 
-      // Save or clear remembered credentials based on checkbox
+      // Clear failsafe
+      clearTimeout(failsafeTimeout);
+
+      // Save remembered credentials
       if (rememberMe) {
         localStorage.setItem('bazaar_remembered_email', email);
         localStorage.setItem('bazaar_remembered_pw', btoa(password));
@@ -393,44 +355,50 @@ export default function Onboarding() {
 
       setUserId(data.user.id);
 
-      // Try to refresh user profile, but don't block navigation if it fails
-      try {
-        await refreshUser(); // Load user profile into context
-      } catch (refreshError) {
-        console.warn("Failed to refresh user profile, but continuing signin:", refreshError);
-        // Continue anyway - user is authenticated even if profile fetch fails
-      }
+      // NON-BLOCKING: Refresh user profile in background
+      // Don't await this! Allow navigation to happen immediately
+      refreshUser().catch(err => console.warn("Background profile refresh failed:", err));
 
       toast({ title: "Welcome back!", description: "Signed in successfully" });
 
-      // Navigate to home even if refreshUser failed
+      // ✅ 1. Navigate to home (Correct Logic: Login -> Home)
+      // Instant navigation - AuthGate/UserContext will handle the rest
       navigate("/home");
+
     } catch (error: any) {
       console.error("Signin error:", error);
 
-      // Handle timeout specifically
-      if (error.message === 'SIGNIN_TIMEOUT') {
-        setNetworkError("Sign in is taking too long. Please check your connection and try again.");
+      const errorMsg = error.message?.toLowerCase() || "unknown error";
+
+      // Handle specific error cases with user-friendly messages
+      if (errorMsg.includes("email not confirmed") || errorMsg.includes("not confirmed")) {
+        setUnverifiedEmail(email.trim().toLowerCase());
+        setShowEmailVerificationPrompt(true);
+      } else if (errorMsg.includes("invalid") || errorMsg.includes("credentials")) {
         toast({
-          title: "Connection Timeout",
-          description: "Sign in took too long. Please try again.",
+          title: "Invalid Credentials",
+          description: "Email or password is incorrect.",
           variant: "destructive"
         });
-        return;
-      }
-
-      const errorMessage = error.message || "Unable to sign in";
-      if (errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('fetch')) {
-        setNetworkError("Network error. Please check your internet connection and try again.");
+      } else if (errorMsg.includes("no internet") || errorMsg.includes("network")) {
+        setNetworkError(error.message);
+      } else if (errorMsg.includes("rate") || errorMsg.includes("too many")) {
+        toast({
+          title: "Too Many Attempts",
+          description: "Please wait before trying again.",
+          variant: "destructive"
+        });
       } else {
         toast({
           title: "Signin Failed",
-          description: errorMessage,
+          description: error.message || "Could not sign in. Please try again.",
           variant: "destructive"
         });
       }
+
     } finally {
-      // ALWAYS reset loading state, no matter what happens
+      // ✅ 3. ALWAYS stop loader
+      clearTimeout(failsafeTimeout);
       setLoading(false);
     }
   };
@@ -496,9 +464,26 @@ export default function Onboarding() {
         family_type: familyType  // Use snake_case for database column
       });
 
-      // Store completion flag in localStorage as well
-      localStorage.setItem('onboarding_completed', 'true');
-      localStorage.setItem('user_id', userId);
+      // CRITICAL: Store completion flag in Capacitor Preferences for native persistence
+      // This ensures the flag survives app close/restart on Android
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        const { Capacitor } = await import('@capacitor/core');
+
+        if (Capacitor.isNativePlatform()) {
+          await Preferences.set({ key: 'onboarding_completed', value: 'true' });
+          await Preferences.set({ key: 'user_id', value: userId });
+          console.log('[Onboarding] Saved completion to Capacitor Preferences');
+        }
+        // Also set in localStorage as fallback for web
+        localStorage.setItem('onboarding_completed', 'true');
+        localStorage.setItem('user_id', userId);
+      } catch (e) {
+        console.warn('Could not save to Capacitor Preferences:', e);
+        // Fallback to localStorage only
+        localStorage.setItem('onboarding_completed', 'true');
+        localStorage.setItem('user_id', userId);
+      }
 
       await refreshUser();
       toast({ title: "Success!", description: "Onboarding complete" });

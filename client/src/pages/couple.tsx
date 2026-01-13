@@ -255,9 +255,9 @@ export default function Couple() {
             <Heart className="w-6 h-6 text-red-300 absolute top-8 right-1/4 animate-bounce" />
           </div>
           <h1 className="text-2xl font-heading font-bold text-foreground flex items-center justify-center gap-2">
-            We <Heart className="w-6 h-6 text-red-500 fill-red-500" />
+            Shared Space <Heart className="w-6 h-6 text-red-500 fill-red-500" />
           </h1>
-          <p className="text-muted-foreground text-sm">{user?.name} & {settings.partnerName}'s Money Zone</p>
+          <p className="text-muted-foreground text-sm">Financial harmony with {settings.partnerName}</p>
         </div>
 
         {/* Tabs */}

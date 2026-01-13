@@ -12,8 +12,8 @@ export function BottomNav() {
 
   const baseItems = [
     { icon: Home, label: t('navigation.home'), href: "/home" },
-    { icon: ArrowRightLeft, label: t('navigation.lenaDena'), href: "/lenadena" },
     { icon: PieChart, label: t('navigation.budget'), href: "/budgets" },
+    { icon: ArrowRightLeft, label: t('navigation.lenaDena'), href: "/lena-dena" }, // Changed href to match route
     { icon: User, label: t('navigation.profile'), href: "/profile" },
   ];
 

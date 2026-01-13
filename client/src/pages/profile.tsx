@@ -545,8 +545,19 @@ export default function Profile() {
   };
 
   const handleSaveAccountType = () => {
-    if (!tempFamilyType) return;
+    console.log("=== ACCOUNT TYPE UPDATE DEBUG ===");
+    console.log("1. handleSaveAccountType called");
+    console.log("2. Selected type:", tempFamilyType);
+    console.log("3. User ID:", user?.id);
+    console.log("4. User object:", user);
+
+    if (!tempFamilyType) {
+      console.log("ERROR: No family type selected");
+      return;
+    }
+
     if (!user?.id) {
+      console.log("ERROR: User not logged in");
       toast({
         title: "Not Logged In",
         description: "Please sign in to change account type",
@@ -554,19 +565,38 @@ export default function Profile() {
       });
       return;
     }
+
+    console.log("5. Calling updateUserMutation.mutate...");
     updateUserMutation.mutate(
       { familyType: tempFamilyType },
       {
         onSuccess: async () => {
-          await refreshUser();
-          setAccountTypeOpen(false);
-          toast({
-            title: "Account Type Updated",
-            description: `Changed to ${getFamilyTypeLabel(tempFamilyType)}`
-          });
+          console.log("6. Mutation SUCCESS - Account type updated");
+          console.log("7. Calling refreshUser...");
+          try {
+            await refreshUser();
+            console.log("8. refreshUser completed successfully");
+            setAccountTypeOpen(false);
+            toast({
+              title: "Account Type Updated",
+              description: `Changed to ${getFamilyTypeLabel(tempFamilyType)}`
+            });
+            console.log("9. Account type update complete ✅");
+          } catch (refreshError) {
+            console.error("ERROR during refreshUser:", refreshError);
+            toast({
+              title: "Update Saved",
+              description: "Please refresh the page to see changes",
+              variant: "default"
+            });
+          }
         },
         onError: (error: any) => {
-          console.error("Account type update error:", error);
+          console.error("6. Mutation FAILED");
+          console.error("Error object:", error);
+          console.error("Error message:", error?.message);
+          console.error("Error cause:", error?.cause);
+          console.error("Full error:", JSON.stringify(error, null, 2));
           toast({
             title: "Update Failed",
             description: error?.message || "Could not change account type. Please try again.",

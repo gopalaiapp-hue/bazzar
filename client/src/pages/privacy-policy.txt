@@ -157,10 +157,10 @@ export default function PrivacyPolicy() {
 
           {/* Download Links */}
           <section className="space-y-4 mt-8 pt-8 border-t border-gray-200">
-            <h2 className="text-lg font-bold">Get BazaarBudget</h2>
+            <h2 className="text-lg font-bold">Get Shakosh</h2>
             <div className="space-y-3">
               <a 
-                href="https://play.google.com/store/apps/details?id=com.bazaarbudget.mobile" 
+                href="" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="block"
@@ -171,7 +171,7 @@ export default function PrivacyPolicy() {
               </a>
               
               <a 
-                href="https://apps.apple.com/app/bazaarbudget/id1234567890" 
+                href="https://spray-scan-43088454.figma.site/" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="block"

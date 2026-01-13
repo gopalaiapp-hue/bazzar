@@ -62,16 +62,10 @@ function Router() {
 function AuthGate() {
   const { user, session, isLoading, isSessionValidated, refreshUser } = useUser();
   const [, setLocation] = useLocation();
-  const [showSplash, setShowSplash] = useState(true);
   const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
-
-  // Splash screen timer - reduced to 800ms for faster startup
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, []);
+  // Splash screen state - only used if we want to force a minimum display time, 
+  // but for P1 performance we want to be as fast as possible.
+  // We will rely on isLoading and isSessionValidated from UseUser.
 
   // Capacitor/Browser visibility listener for app resume (background -> foreground)
   useEffect(() => {
@@ -94,11 +88,11 @@ function AuthGate() {
     };
   }, [refreshUser]);
 
-  // Auth check effect - runs after splash and loading are done
+  // Auth check effect - runs after loading is done
   useEffect(() => {
-    // Wait for splash to finish, UserContext to complete loading, AND session to be validated
-    if (showSplash || isLoading || !isSessionValidated) {
-      console.log("AuthGate: Waiting for initialization...", { showSplash, isLoading, isSessionValidated });
+    // Wait for UserContext to complete loading AND session to be validated
+    if (isLoading || !isSessionValidated) {
+      console.log("AuthGate: Waiting for initialization...", { isLoading, isSessionValidated });
       return;
     }
 
@@ -120,37 +114,75 @@ function AuthGate() {
     console.log("Session Validated:", isSessionValidated);
 
     if (isAuthenticated) {
-      // Check onboarding completion from BOTH sources
-      const localStorageComplete = localStorage.getItem('onboarding_completed') === 'true';
-      const profileComplete = user?.onboardingStep === 99;
+      // Check onboarding completion from Capacitor Preferences (native) or localStorage (web)
+      const checkOnboardingStatus = async () => {
+        let localStorageComplete = false;
 
-      const isOnboardingComplete = localStorageComplete || profileComplete;
+        try {
+          const { Preferences } = await import('@capacitor/preferences');
+          const { Capacitor } = await import('@capacitor/core');
 
-      console.log("LocalStorage Onboarding:", localStorageComplete);
-      console.log("Profile Onboarding:", profileComplete);
-      console.log("Final Onboarding Status:", isOnboardingComplete);
+          if (Capacitor.isNativePlatform()) {
+            const { value } = await Preferences.get({ key: 'onboarding_completed' });
+            localStorageComplete = value === 'true';
+            console.log('[AuthGate] Capacitor Preferences onboarding:', localStorageComplete);
+          } else {
+            localStorageComplete = localStorage.getItem('onboarding_completed') === 'true';
+            console.log('[AuthGate] localStorage onboarding:', localStorageComplete);
+          }
+        } catch (e) {
+          console.warn('[AuthGate] Failed to check Capacitor Preferences, falling back to localStorage:', e);
+          localStorageComplete = localStorage.getItem('onboarding_completed') === 'true';
+        }
 
-      if (isOnboardingComplete) {
-        // User is logged in and onboarding is complete - go to home
-        console.log("✅ AuthGate: Redirecting to /home (authenticated + onboarding complete)");
-        console.log("==================================");
-        setLocation("/home");
-      } else {
-        // User is logged in but onboarding not complete - stay on onboarding
-        console.log("⚠️ AuthGate: Staying on onboarding (authenticated but onboarding incomplete)");
-        console.log("==================================");
-      }
+        const profileComplete = user?.onboardingStep === 99;
+        const isOnboardingComplete = localStorageComplete || profileComplete;
+
+        console.log("LocalStorage/Preferences Onboarding:", localStorageComplete);
+        console.log("Profile Onboarding:", profileComplete);
+        console.log("Final Onboarding Status:", isOnboardingComplete);
+
+        if (isOnboardingComplete) {
+          // User is logged in and onboarding is complete - go to home
+          console.log("✅ AuthGate: Redirecting to /home (authenticated + onboarding complete)");
+          console.log("==================================");
+          setLocation("/home");
+        } else {
+          // User is logged in but onboarding not complete - stay on onboarding
+          console.log("⚠️ AuthGate: Staying on onboarding (authenticated but onboarding incomplete)");
+          console.log("==================================");
+        }
+      };
+
+      checkOnboardingStatus();
     } else {
       // No session - user needs to sign in
       console.log("❌ AuthGate: No session found, showing sign in");
       console.log("==================================");
     }
-  }, [showSplash, isLoading, isSessionValidated, session, user, hasCheckedAuth, setLocation]);
+  }, [isLoading, isSessionValidated, session, user, hasCheckedAuth, setLocation]);
 
-  // Sync localStorage with user profile onboarding status
-  // This ensures localStorage stays in sync if db says onboarding is complete
+  // Sync Capacitor Preferences with user profile onboarding status
+  // This ensures Preferences stays in sync if db says onboarding is complete
   useEffect(() => {
     if (user?.onboardingStep === 99) {
+      // Save to Capacitor Preferences on native platforms
+      import('@capacitor/preferences').then(async ({ Preferences }) => {
+        try {
+          const { Capacitor } = await import('@capacitor/core');
+          if (Capacitor.isNativePlatform()) {
+            await Preferences.set({ key: 'onboarding_completed', value: 'true' });
+            if (user.id) {
+              await Preferences.set({ key: 'user_id', value: user.id });
+            }
+            console.log('[App] Synced onboarding completion to Capacitor Preferences');
+          }
+        } catch (e) {
+          console.warn('[App] Failed to sync to Capacitor Preferences:', e);
+        }
+      });
+
+      // Also save to localStorage for web fallback
       try {
         localStorage.setItem('onboarding_completed', 'true');
         if (user.id) {
@@ -163,7 +195,7 @@ function AuthGate() {
   }, [user]);
 
   // Show splash screen while loading or validating session
-  if (showSplash || isLoading || !isSessionValidated) {
+  if (isLoading || !isSessionValidated) {
     return <SplashScreen />;
   }
 

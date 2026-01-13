@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Goal } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useUser } from "@/context/UserContext";
-import { apiUrl } from "@/lib/api-config";
+import { supabase } from "@/lib/supabaseClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,10 +32,26 @@ export default function Goals() {
     queryKey: ["goals", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(apiUrl(`/api/goals/${userId}`));
-      if (!res.ok) throw new Error("Failed to fetch goals");
-      const data = await res.json();
-      return data.goals || [];
+
+      const { data, error } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('id', { ascending: false });
+
+      if (error) throw new Error(error.message || "Failed to fetch goals");
+
+      // Convert snake_case to camelCase
+      return (data || []).map((goal: any) => ({
+        id: goal.id,
+        userId: goal.user_id,
+        name: goal.name,
+        targetAmount: goal.target_amount,
+        currentAmount: goal.current_amount,
+        deadline: goal.deadline,
+        icon: goal.icon,
+        isPriority: goal.is_priority
+      }));
     },
     enabled: !!userId,
   });
@@ -43,16 +59,23 @@ export default function Goals() {
   // Create goal mutation
   const createGoalMutation = useMutation({
     mutationFn: async (goalData: { userId: string; name: string; targetAmount: number; deadline?: string; isPriority?: boolean }) => {
-      const res = await fetch(apiUrl("/api/goals"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(goalData),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create goal");
-      }
-      return res.json();
+      // Convert camelCase to snake_case for Supabase
+      const { data, error } = await supabase
+        .from('goals')
+        .insert({
+          user_id: goalData.userId,
+          name: goalData.name,
+          target_amount: goalData.targetAmount,
+          current_amount: 0,
+          deadline: goalData.deadline || null,
+          is_priority: goalData.isPriority || false,
+          icon: '🎯'
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message || "Failed to create goal");
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["goals"] });
@@ -61,6 +84,7 @@ export default function Goals() {
       toast({ title: "Goal Created! 🎯", description: "Start saving towards your new goal!" });
     },
     onError: (error: Error) => {
+      console.error("Goal creation error:", error);
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });

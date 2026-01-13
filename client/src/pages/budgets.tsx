@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { apiUrl } from "@/lib/api-config";
+import { supabase } from "@/lib/supabaseClient";
 
 // Helper to map icon names to components if needed, or just use emojis
 const getIcon = (iconName: string) => {
@@ -42,10 +42,29 @@ export default function Budgets() {
     queryKey: ["budgets", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(apiUrl(`/api/budgets/${userId}`));
-      if (!res.ok) throw new Error("Failed to fetch budgets");
-      const data = await res.json();
-      return data.budgets;
+
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('*')
+        .eq('user_id', userId)
+        .order('id', { ascending: false });
+
+      if (error) {
+        console.error("Failed to fetch budgets:", error);
+        throw new Error(error.message || "Failed to fetch budgets");
+      }
+
+      // Convert snake_case to camelCase (budgets table uses snake_case)
+      return (data || []).map((budget: any) => ({
+        id: budget.id,
+        userId: budget.user_id,
+        category: budget.category,
+        limit: budget.limit,
+        spent: budget.spent,
+        month: budget.month,
+        icon: budget.icon,
+        color: budget.color
+      }));
     },
     enabled: !!userId,
   });
@@ -55,48 +74,66 @@ export default function Budgets() {
 
   const updateBudgetMutation = useMutation({
     mutationFn: async ({ id, limit }: { id: number, limit: number }) => {
-      const res = await fetch(apiUrl(`/api/budgets/${id}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit }),
-      });
-      if (!res.ok) throw new Error("Failed to update budget");
-      return res.json();
+      const { error } = await supabase
+        .from('budgets')
+        .update({ limit })
+        .eq('id', id);
+
+      if (error) {
+        console.error("Budget update error:", error);
+        throw new Error(error.message || "Failed to update budget");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["budgets"] });
       setEditingBudget(null);
       toast({ title: "Budget Updated", description: "Limit has been updated successfully." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update budget.", variant: "destructive" });
+    onError: (error: any) => {
+      console.error("Update budget mutation error:", error);
+      toast({ title: "Error", description: error.message || "Failed to update budget.", variant: "destructive" });
     }
   });
 
   const addBudgetMutation = useMutation({
     mutationFn: async (data: any) => {
+      if (!userId) throw new Error("User not authenticated");
+
       // Use current month dynamically
       const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2025-12"
-      const res = await fetch(apiUrl("/api/budgets"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, userId: userId, month: currentMonth, spent: 0 })
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || "Failed to create budget");
+
+      // Convert camelCase to snake_case for Supabase
+      const { data: newBudget, error } = await supabase
+        .from('budgets')
+        .insert({
+          user_id: userId,
+          category: data.category,
+          limit: data.limit,
+          month: currentMonth,
+          spent: 0,
+          icon: data.icon || null,
+          color: data.color || null
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Budget creation error:", error);
+        throw new Error(error.message || "Failed to create budget");
       }
-      return res.json();
+
+      return newBudget;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["budgets"] });
       setAddBudgetOpen(false);
       setNewBudgetCategory("");
       setNewBudgetLimit("");
-      toast({ title: "Budget Created" });
+      toast({ title: "Budget Created", description: "Budget added successfully" });
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      console.error("Add budget mutation error:", error);
+      toast({ title: "Error", description: error.message || "Failed to create budget", variant: "destructive" });
     }
   });
 
