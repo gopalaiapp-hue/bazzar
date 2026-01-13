@@ -37,7 +37,7 @@ jobs:
         run: npm run android:build:bundle
 
       - name: Upload to Indus Appstore
-        uses: yogeshpaliyal/upload-indus-appstore@v1
+        uses: yogeshpaliyal/upload-indus-appstore@v0.0.7
         with:
           type: 'UPLOAD_AAB'
           apiKey: ${{ secrets.INDUS_API_KEY }}
