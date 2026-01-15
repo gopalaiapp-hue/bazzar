@@ -31,10 +31,15 @@ jobs:
         run: npm run build:web
 
       - name: Sync Capacitor
-        run: npx cap sync
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
 
       - name: Build Android Bundle
-        run: npm run android:build:bundle
+        run: |
+          cd android
+          ./gradlew bundleRelease
 
       - name: Upload to Indus Appstore
         uses: yogeshpaliyal/upload-indus-appstore@v0.0.7
