@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AccountTypeDetailsSheet } from "@/components/ui/account-type-details-sheet";
+import { ChangePasswordSheet } from "@/components/ui/ChangePasswordSheet";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
@@ -384,6 +385,7 @@ export default function Profile() {
   const [tempFamilyType, setTempFamilyType] = useState<"mai_sirf" | "couple" | "joint" | null>(user?.familyType || null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsType, setDetailsType] = useState<"mai_sirf" | "couple" | "joint" | null>(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [banks, setBanks] = useState([
@@ -803,7 +805,8 @@ export default function Profile() {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>{t('profile.editProfile')}</DialogTitle>
+                      <DialogTitle>{t('profile.editProfile', 'Edit Profile')}</DialogTitle>
+                      <DialogDescription>Update your profile information</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div>
@@ -811,12 +814,8 @@ export default function Profile() {
                         <Input
                           defaultValue={user?.name || ""}
                           onChange={(e) => handleSaveSettings("name", e.target.value)}
+                          placeholder="Enter your name"
                         />
-                      </div>
-                      <div className="pt-2">
-                        <Button variant="outline" className="w-full" onClick={() => toast({ title: "Coming Soon", description: "Password change will be available soon." })}>
-                          Change Password
-                        </Button>
                       </div>
                     </div>
                     <DialogFooter>
@@ -1211,6 +1210,14 @@ export default function Profile() {
                 </DialogContent>
               </Dialog>
               <Separator />
+
+              <MenuItem
+                icon={Lock}
+                label={t('profile.changePassword', 'Change Password')}
+                sublabel="Update your account password securely"
+                onClick={() => setChangePasswordOpen(true)}
+              />
+              <Separator />
               <div className="flex items-center justify-between p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="h-10 w-10 rounded-full bg-gray-50 text-gray-600 flex items-center justify-center">
@@ -1564,6 +1571,13 @@ export default function Profile() {
           </section>
         </div>
       </div>
+
+      {/* Change Password Sheet */}
+      <ChangePasswordSheet
+        isOpen={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        userEmail={user?.email || ""}
+      />
     </MobileShell>
   );
 }

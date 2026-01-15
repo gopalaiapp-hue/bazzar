@@ -203,6 +203,21 @@ export const insertFamilyMemberSchema = createInsertSchema(familyMembers).omit({
 export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
 export type FamilyMember = typeof familyMembers.$inferSelect;
 
+// Goal Contributions Table (for tracking deposits to goals)
+export const goalContributions = pgTable("goal_contributions", {
+  id: serial("id").primaryKey(),
+  goalId: integer("goal_id").references(() => goals.id, { onDelete: "cascade" }).notNull(),
+  userId: text("user_id").references(() => users.id).notNull(),
+  amount: integer("amount").notNull(),
+  source: text("source").notNull(), // 'Cash', 'Bank', 'Pocket', etc.
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGoalContributionSchema = createInsertSchema(goalContributions).omit({ id: true, createdAt: true });
+export type InsertGoalContribution = z.infer<typeof insertGoalContributionSchema>;
+export type GoalContribution = typeof goalContributions.$inferSelect;
+
 // Goals Table
 export const goals = pgTable("goals", {
   id: serial("id").primaryKey(),
@@ -213,6 +228,9 @@ export const goals = pgTable("goals", {
   deadline: timestamp("deadline"),
   icon: text("icon"),
   isPriority: boolean("is_priority").default(false),
+  reminderEnabled: boolean("reminder_enabled").default(false),
+  reminderFrequency: text("reminder_frequency").default("monthly"),
+  lastContributionDate: timestamp("last_contribution_date"),
 });
 
 export const insertGoalSchema = createInsertSchema(goals).omit({ id: true });
