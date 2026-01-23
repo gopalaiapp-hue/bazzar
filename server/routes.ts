@@ -860,6 +860,24 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/transactions/:id", async (req, res) => {
+    try {
+      const transaction = await storage.updateTransaction(parseInt(req.params.id), req.body);
+      return res.json({ transaction });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to update transaction" });
+    }
+  });
+
+  app.delete("/api/transactions/:id", async (req, res) => {
+    try {
+      await storage.deleteTransaction(parseInt(req.params.id));
+      return res.json({ success: true });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to delete transaction" });
+    }
+  });
+
   // ========== LENA-DENA ROUTES ==========
 
   app.get("/api/lenadena/:userId", async (req, res) => {

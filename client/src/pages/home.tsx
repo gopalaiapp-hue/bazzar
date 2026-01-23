@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { PocketCard } from "@/components/ui/pocket-card";
 import { ExpenseDetailSheet } from "@/components/ui/ExpenseDetailSheet";
-import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X, CreditCard } from "lucide-react";
+import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X, CreditCard, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -19,6 +19,8 @@ import { useLocation, useRoute } from "wouter";
 import { useUser } from "@/context/UserContext";
 import { notifyTransaction } from "@/lib/notificationService";
 import { apiUrl } from "@/lib/api-config";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { parseVoiceCommand } from "@/lib/voice-parser";
 
 // Force refetch on focus
 function useFocusEffect(callback: () => void) {
@@ -29,7 +31,7 @@ function useFocusEffect(callback: () => void) {
 }
 
 interface Transaction {
-  id: string;
+  id: string | number;
   type: "debit" | "credit";
   amount: number;
   merchant: string;
@@ -162,8 +164,60 @@ export default function Home() {
       }
     },
     enabled: !!userId,
+    enabled: !!userId,
     retry: 2
   });
+
+  // Budgets Query (for Daily Limit)
+  const { data: budgets = [] } = useQuery({
+    queryKey: ["budgets", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(apiUrl(`/api/budgets/${userId}`));
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.budgets || [];
+    },
+    enabled: !!userId,
+  });
+
+  // Calculate Daily Limit Logic
+  const calculateDailyStats = () => {
+    const today = new Date();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const dayOfMonth = today.getDate();
+    const daysRemaining = Math.max(1, daysInMonth - dayOfMonth + 1);
+
+    // Filter budgets that matter for daily spend (exclude savings/investments if marked, but for now take all)
+    // Or specifically look for "Groceries" / "Food" / "Daily"
+    const dailyBudgets = budgets.filter((b: any) =>
+      ["Groceries", "Food", "Daily", "General"].some(cat => b.category.includes(cat))
+    );
+
+    // If no specific daily budgets, fallback to total budgets or a default
+    const targetBudgets = dailyBudgets.length > 0 ? dailyBudgets : budgets;
+
+    const totalLimit = targetBudgets.reduce((sum: number, b: any) => sum + (b.limit || 0), 0);
+    const totalSpent = targetBudgets.reduce((sum: number, b: any) => sum + (b.spent || 0), 0);
+    const remaining = Math.max(0, totalLimit - totalSpent);
+
+    const dailySafeLimit = Math.floor(remaining / daysRemaining);
+
+    // Get today's spend for these categories
+    const todayStr = today.toLocaleDateString("en-IN");
+    const todaySpend = transactions
+      .filter(tx =>
+        tx.type === 'debit' &&
+        tx.date === todayStr &&
+        (!targetBudgets.length || targetBudgets.some((b: any) => b.category === tx.category))
+      )
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    return { dailySafeLimit, todaySpend, daysRemaining };
+  };
+
+  const { dailySafeLimit, todaySpend } = calculateDailyStats();
+
 
   useEffect(() => {
     if (pocketsError) {
@@ -177,63 +231,150 @@ export default function Home() {
   }, [pocketsError, pocketsErrorDetails, toast]);
 
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [showAddCategory, setShowAddCategory] = useState(false);
-  const [newCategory, setNewCategory] = useState("");
-
-  // Search & Filter State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSearch, setShowSearch] = useState(false);
-  const [filterType, setFilterType] = useState<"all" | "debit" | "credit">("all");
-
-  // Add Pocket State
-  const [addPocketOpen, setAddPocketOpen] = useState(false);
-  const [newPocketName, setNewPocketName] = useState("");
-  const [newPocketAmount, setNewPocketAmount] = useState("");
-  const [newPocketType, setNewPocketType] = useState("cash");
-  const [newPocketTarget, setNewPocketTarget] = useState("");
-  const [newPocketDeadline, setNewPocketDeadline] = useState("");
-  const [newPocketIcon, setNewPocketIcon] = useState("💰");
-  const [showTransferDialog, setShowTransferDialog] = useState(false);
-  const [transferFrom, setTransferFrom] = useState<number | null>(null);
-  const [transferTo, setTransferTo] = useState<number | null>(null);
-  const [transferAmount, setTransferAmount] = useState("");
-
-
-  const [formData, setFormData] = useState({
-    type: "debit",
-    amount: "",
-    merchant: "",
-    category: "Groceries",
-    paymentMethod: "Cash",
-    paidBy: "You",
-    notes: "",
-    isBorrowed: false,
-    lenderName: "",
-    lenderPhone: "",
-    isShared: false,
-    receiptUrl: "",
-    hasSplit: false,
-    splitAmount1: "",
-    splitAmount2: "",
-    splitMethod1: "Cash",
-    splitMethod2: "UPI",
+  // Transactions Query
+  const { data: transactions = [], isLoading: isTransactionsLoading } = useQuery({
+    queryKey: ["transactions", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(apiUrl(`/api/transactions/${userId}`));
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      const data = await res.json();
+      return (data.transactions || []).map((t: any) => ({
+        ...t,
+        date: t.date ? new Date(t.date).toLocaleDateString("en-IN") : new Date().toLocaleDateString("en-IN"),
+        createdAt: t.createdAt ? new Date(t.createdAt).getTime() : Date.now(),
+        editDeadline: t.createdAt ? new Date(t.createdAt).getTime() + 3600000 : Date.now() + 3600000
+      }));
+    },
+    enabled: !!userId,
   });
 
+  // Mutations
+  const addTxMutation = useMutation({
+    mutationFn: async (newTx: any) => {
+      const res = await fetch(apiUrl("/api/transactions"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTx)
+      });
+      if (!res.ok) throw new Error("Failed to add transaction");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["pockets"] });
+      toast({ title: "Transaction Saved" });
+      setOpenDialog(false);
+      setIncomeDialogOpen(false);
+      setEditingId(null);
+      // Reset form
+      setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" });
+    },
+    onError: (err) => toast({ title: "Error", description: "Failed to save transaction", variant: "destructive" })
+  });
 
-
-  // Load from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("bazaar_transactions");
-    if (saved) {
-      setTransactions(JSON.parse(saved));
+  const updateTxMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string | number, data: any }) => {
+      const res = await fetch(apiUrl(`/api/transactions/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["pockets"] });
+      toast({ title: "Transaction Updated" });
+      setOpenDialog(false);
+      setIncomeDialogOpen(false);
+      setEditingId(null);
     }
-  }, []);
+  });
+
+  const deleteTxMutation = useMutation({
+    mutationFn: async (id: string | number) => {
+      const res = await fetch(apiUrl(`/api/transactions/${id}`), { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["pockets"] });
+      toast({ title: "Transaction Deleted" });
+    }
+  });
+
+  // Voice Input Integration
+  const { isListening, transcript, error: voiceError, startListening, stopListening, resetTranscript, supported: voiceSupported } = useVoiceInput();
+
+  // Voice error handling
+  useEffect(() => {
+    if (voiceError) {
+      console.error("Voice Recognition Error:", voiceError);
+      toast({
+        title: "Voice Recognition Failed",
+        description: voiceError,
+        variant: "destructive"
+      });
+    }
+  }, [voiceError, toast]);
+
+  // Voice transcript processing
+  useEffect(() => {
+    if (transcript) {
+      console.log("✅ Voice Result Received:", transcript);
+
+      try {
+        const parsed = parseVoiceCommand(transcript);
+        console.log("✅ Parsed Voice Command:", parsed);
+
+        // Auto-fill form
+        setFormData(prev => {
+          const newData = {
+            ...prev,
+            amount: parsed.amount ? parsed.amount.toString() : prev.amount,
+            merchant: parsed.merchant,
+            category: parsed.category,
+            type: parsed.type,
+            paymentMethod: parsed.paymentMethod || prev.paymentMethod,
+            notes: `Voice: "${parsed.originalTranscript}"`
+          };
+          console.log("✅ Form Data Updated:", newData);
+          return newData;
+        });
+
+        // Open appropriate dialog
+        if (parsed.type === 'credit') {
+          console.log("✅ Opening Income Dialog");
+          setIncomeDialogOpen(true);
+        } else {
+          console.log("✅ Opening Expense Dialog");
+          setOpenDialog(true);
+        }
+
+        toast({
+          title: "Voice Command Recognized 🎤",
+          description: `₹${parsed.amount || '?'} • ${parsed.merchant} • ${parsed.paymentMethod}`
+        });
+
+        resetTranscript();
+      } catch (error) {
+        console.error("❌ Error parsing voice command:", error);
+        toast({
+          title: "Failed to Parse Voice",
+          description: "Could not understand the command. Please try again.",
+          variant: "destructive"
+        });
+        resetTranscript();
+      }
+    }
+  }, [transcript, resetTranscript, toast]);
+
 
   // Calculate balance from pockets
   const totalBalance = pockets.reduce((acc, pocket) => acc + (pocket.amount || 0), 0);
@@ -250,13 +391,19 @@ export default function Home() {
   // Net balance = income - expense
   const netBalance = totalIncome - totalExpense;
 
-  // Calculate today's spending
-  const getTodaySpending = () => {
+  // Calculate today's spending split
+  const getTodayStats = () => {
     const today = new Date().toLocaleDateString("en-IN");
-    return transactions
-      .filter(tx => tx.date === today && tx.type === "debit")
-      .reduce((sum, tx) => sum + tx.amount, 0);
+    const todayTx = transactions.filter(tx => tx.date === today && tx.type === "debit");
+
+    const total = todayTx.reduce((sum, tx) => sum + tx.amount, 0);
+    const cash = todayTx.filter(tx => tx.paymentMethod === 'Cash').reduce((sum, tx) => sum + tx.amount, 0);
+    const online = total - cash;
+
+    return { total, cash, online };
   };
+
+  const todayStats = getTodayStats();
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("en-IN", {
@@ -292,14 +439,15 @@ export default function Home() {
       }
     }
 
-    const newTx: Transaction = {
-      id: editingId || `t${Date.now()}`,
+    const txData = {
+      userId: userId,
       type: formData.type as "debit" | "credit",
       amount: parseInt(formData.amount),
       merchant: formData.merchant,
       category: formData.category,
       icon: CATEGORIES.find(c => c.label === formData.category)?.icon || (customCategories.includes(formData.category) ? "🏷️" : "💳"),
-      date: new Date().toLocaleDateString("en-IN"),
+      // API expects timestamp or ISO date string, but for simplicity let's use the current date handling in backend
+      // date: new Date().toISOString(), 
       paymentMethod: formData.paymentMethod,
       paidBy: formData.paidBy,
       notes: formData.notes,
@@ -313,15 +461,12 @@ export default function Home() {
       splitAmount2: formData.hasSplit ? parseInt(formData.splitAmount2 as any) : undefined,
       splitMethod1: formData.hasSplit ? formData.splitMethod1 : undefined,
       splitMethod2: formData.hasSplit ? formData.splitMethod2 : undefined,
-      createdAt: editingId ? transactions.find(t => t.id === editingId)?.createdAt || Date.now() : Date.now(),
-      editDeadline: editingId ? transactions.find(t => t.id === editingId)?.editDeadline || Date.now() + 3600000 : Date.now() + 3600000,
     };
 
-    let updated = transactions;
     if (editingId) {
-      updated = transactions.map(t => t.id === editingId ? newTx : t);
+      updateTxMutation.mutate({ id: editingId, data: txData });
     } else {
-      updated = [newTx, ...transactions];
+      addTxMutation.mutate(txData);
 
       // Trigger notification and vibration for new transactions
       notifyTransaction(
@@ -330,13 +475,6 @@ export default function Home() {
         formData.merchant
       ).catch(err => console.warn('Notification failed:', err));
     }
-
-    setTransactions(updated);
-    localStorage.setItem("bazaar_transactions", JSON.stringify(updated));
-    setOpenDialog(false);
-    setEditingId(null);
-    setFormData({ type: "debit", amount: "", merchant: "", category: "Groceries", paymentMethod: "Cash", paidBy: "You", notes: "", isBorrowed: false, lenderName: "", lenderPhone: "", isShared: false, receiptUrl: "", hasSplit: false, splitAmount1: "", splitAmount2: "", splitMethod1: "Cash", splitMethod2: "UPI" });
-    toast({ title: "Transaction Saved", description: `₹${formData.amount} recorded` });
   };
 
   const handleEditTransaction = (tx: Transaction) => {
@@ -367,16 +505,8 @@ export default function Home() {
     setOpenDialog(true);
   };
 
-  const handleDeleteTransaction = (id: string) => {
-    const tx = transactions.find(t => t.id === id);
-    if (tx && !canEditTransaction(tx)) {
-      toast({ title: "Cannot Delete", description: "You can only delete transactions within 1 hour", variant: "destructive" });
-      return;
-    }
-    const updated = transactions.filter(t => t.id !== id);
-    setTransactions(updated);
-    localStorage.setItem("bazaar_transactions", JSON.stringify(updated));
-    toast({ title: "Transaction Deleted" });
+  const handleDeleteTransaction = (id: string | number) => {
+    deleteTxMutation.mutate(id);
   };
 
   const handleUpdatePrice = (id: string, newAmount: number) => {
@@ -537,11 +667,81 @@ export default function Home() {
                 <Bell className="w-5 h-5 text-gray-600" />
               </Button>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-              <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border border-blue-100">
-                {t('home.dailyBriefMessage', { amount: formatCurrency(getTodaySpending()) })}
+            <div className="flex gap-2 pb-2">
+              {/* Daily Spending Split Meter */}
+              {/* Daily Limit Tracker */}
+              <div className="flex-1 bg-white border border-gray-100 rounded-xl p-3 shadow-sm relative overflow-hidden">
+                <div className="flex justify-between items-start mb-2 relative z-10">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                      {dailySafeLimit > 0 ? "Daily Safe Limit" : "Today's Spend"}
+                    </p>
+                    <div className="flex items-baseline gap-1">
+                      <p className={cn("text-lg font-black", todaySpend > dailySafeLimit && dailySafeLimit > 0 ? "text-red-600" : "text-gray-800")}>
+                        {formatCurrency(todaySpend)}
+                      </p>
+                      {dailySafeLimit > 0 && (
+                        <span className="text-xs text-muted-foreground font-medium">
+                          / {formatCurrency(dailySafeLimit)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {dailySafeLimit > 0 && todaySpend > dailySafeLimit && (
+                    <div className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-1 rounded-full animate-pulse">
+                      ⚠️ Over Limit
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress Bar */}
+                <div className="relative h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                  {dailySafeLimit > 0 ? (
+                    <div
+                      className={cn("h-full transition-all duration-500", todaySpend > dailySafeLimit ? "bg-red-500" : "bg-green-500")}
+                      style={{ width: `${Math.min(100, (todaySpend / dailySafeLimit) * 100)}%` }}
+                    />
+                  ) : (
+                    <div className="h-full bg-blue-500 w-full opacity-20" />
+                  )}
+                </div>
+
+                {/* Footer Info */}
+                <div className="flex justify-between mt-2 text-[10px] text-gray-500 relative z-10">
+                  <span>
+                    {dailySafeLimit > 0 ? `${Math.floor((todaySpend / dailySafeLimit) * 100)}% Used` : "Track budgets to see limit"}
+                  </span>
+                  <span>{todayStats.online > 0 ? `${formatCurrency(todayStats.online)} online` : "Cash dominated"}</span>
+                </div>
               </div>
             </div>
+
+            {/* Voice Input FAB - Only shows if supported */}
+            {voiceSupported && (
+              <Button
+                onClick={() => {
+                  console.log("🎤 Microphone button clicked, voiceSupported:", voiceSupported);
+                  if (isListening) {
+                    console.log("⏹️ Stopping voice recognition");
+                    stopListening();
+                  } else {
+                    console.log("▶️ Starting voice recognition");
+                    toast({
+                      title: "Listening... 🎤",
+                      description: "Speak now to add an expense or income"
+                    });
+                    startListening();
+                  }
+                }}
+                className={cn(
+                  "fixed bottom-24 left-6 z-50 rounded-full h-14 w-14 shadow-lg transition-all duration-300",
+                  isListening ? "bg-red-500 hover:bg-red-600 animate-pulse scale-110" : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:scale-105"
+                )}
+              >
+                <Mic className={cn("w-6 h-6 text-white", isListening && "animate-bounce")} />
+              </Button>
+            )}
+
             {/* Add Expense/Income Buttons */}
             <div className="flex gap-3 mt-4">
               <Dialog open={openDialog} onOpenChange={setOpenDialog}>
@@ -789,7 +989,7 @@ export default function Home() {
                 </DialogContent>
               </Dialog>
             </div>
-          </div>
+          </div >
         }
       >
         <div className="px-6 py-6 space-y-8">
@@ -1284,10 +1484,10 @@ export default function Home() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </MobileShell>
+      </MobileShell >
 
       {/* Expense Detail Sheet */}
-      <ExpenseDetailSheet
+      < ExpenseDetailSheet
         isOpen={!!selectedTransaction}
         onClose={() => setSelectedTransaction(null)}
         transaction={selectedTransaction}

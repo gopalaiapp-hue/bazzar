@@ -40,6 +40,8 @@ export interface IStorage {
   // Transactions
   getUserTransactions(userId: string, limit?: number): Promise<schema.Transaction[]>;
   createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction>;
+  updateTransaction(id: number, transaction: Partial<schema.InsertTransaction>): Promise<schema.Transaction>;
+  deleteTransaction(id: number): Promise<void>;
 
   // Lena Dena
   getUserLenaDena(userId: string): Promise<schema.LenaDena[]>;
@@ -345,7 +347,79 @@ export class DatabaseStorage implements IStorage {
 
   async createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction> {
     const result = await db.insert(schema.transactions).values(transaction).returning();
-    return result[0];
+    const newTx = result[0];
+
+    // Sync with Budget if it's an expense
+    if (newTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(newTx, 'add');
+    }
+
+    return newTx;
+  }
+
+  async updateTransaction(id: number, data: Partial<schema.InsertTransaction>): Promise<schema.Transaction> {
+    // 1. Get original transaction to revert its effect
+    const originalTx = await db.select().from(schema.transactions).where(eq(schema.transactions.id, id)).limit(1).then(res => res[0]);
+    if (!originalTx) throw new Error("Transaction not found");
+
+    // 2. Revert original budget effect
+    if (originalTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(originalTx, 'remove');
+    }
+
+    // 3. Update transaction
+    const result = await db.update(schema.transactions).set(data).where(eq(schema.transactions.id, id)).returning();
+    const updatedTx = result[0];
+
+    // 4. Apply new budget effect
+    if (updatedTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(updatedTx, 'add');
+    }
+
+    return updatedTx;
+  }
+
+  async deleteTransaction(id: number): Promise<void> {
+    const tx = await db.select().from(schema.transactions).where(eq(schema.transactions.id, id)).limit(1).then(res => res[0]);
+    if (tx && tx.type === 'debit') {
+      await this.syncBudgetWithTransaction(tx, 'remove');
+    }
+    await db.delete(schema.transactions).where(eq(schema.transactions.id, id));
+  }
+
+  // Helper to sync budget
+  private async syncBudgetWithTransaction(tx: schema.Transaction, operation: 'add' | 'remove') {
+    if (!tx.category || !tx.amount) return;
+
+    // Determine month string (YYYY-MM) from transaction date or now
+    const date = tx.date ? new Date(tx.date) : new Date();
+    const month = date.toISOString().slice(0, 7);
+
+    // Find matching budget
+    const budgets = await db.select().from(schema.budgets)
+      .where(and(
+        eq(schema.budgets.userId, tx.userId),
+        eq(schema.budgets.category, tx.category),
+        eq(schema.budgets.month, month)
+      ))
+      .limit(1);
+
+    if (budgets.length > 0) {
+      const budget = budgets[0];
+      let newSpent = budget.spent || 0;
+
+      if (operation === 'add') newSpent += tx.amount;
+      else newSpent -= tx.amount;
+
+      // Prevent negative spent (optional, but good for safety)
+      if (newSpent < 0) newSpent = 0;
+
+      await db.update(schema.budgets)
+        .set({ spent: newSpent })
+        .where(eq(schema.budgets.id, budget.id));
+
+      console.log(`Budget synced: ${operation} ₹${tx.amount} to/from ${budget.category} (${month})`);
+    }
   }
 
   // Lena Dena
