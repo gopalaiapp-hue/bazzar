@@ -80,14 +80,6 @@ export default function Home() {
   const { user, isLoading } = useUser();
   const userId = user?.id;
 
-  // AUTH GUARD: Redirect to onboarding if not logged in
-  React.useEffect(() => {
-    if (!isLoading && !user) {
-      console.log("Home: No user found, redirecting to onboarding");
-      setLocation("/");
-    }
-  }, [user, isLoading, setLocation]);
-
   // Refetch data when screen comes into focus
   useFocusEffect(React.useCallback(() => {
     if (userId) {
@@ -96,6 +88,12 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ["goals", userId] }); // Ensure goals are refreshed
     }
   }, [userId, queryClient]));
+
+  // Show loading screen while user data is being fetched
+  // AuthGate handles all auth routing - this page should only render when authenticated
+  if (isLoading || !user) {
+    return <SplashScreen />;
+  }
 
   const { data: pockets = [], isLoading: pocketsLoading, isError: pocketsError, error: pocketsErrorDetails } = useQuery<Pocket[]>({
     queryKey: ["pockets", userId],
