@@ -1,9 +1,8 @@
 name: Deploy to Indus Appstore
 
+
 on:
-  push:
-    branches: [ "main", "master", "second" ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
   build-and-deploy:
