@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "wouter";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -9,7 +10,7 @@ import {
   ChevronRight, Trash2, Shield, Moon, Sun, Palette,
   FileText, Database, AlertTriangle, EyeOff, Clock,
   Globe, MessageCircle, Info, Cloud, TrendingUp, ChevronDown,
-  Wallet, ArrowUpRight
+  Wallet, ArrowUpRight, ArrowDownLeft, Mail, AlertCircle, Check
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -18,11 +19,17 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AccountTypeDetailsSheet } from "@/components/ui/account-type-details-sheet";
+import { ChangePasswordSheet } from "@/components/ui/ChangePasswordSheet";
+import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useNotifications } from "@/context/NotificationContext";
+import { resendVerificationEmail } from "@/lib/supabaseApi";
+import { supabase } from "@/lib/supabaseClient";
+import { apiUrl } from "@/lib/api-config";
 
 
 
@@ -35,7 +42,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["pockets", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/pockets/${userId}`);
+      const res = await fetch(apiUrl(`/api/pockets/${userId}`));
       if (!res.ok) throw new Error("Failed to fetch pockets");
       const data = await res.json();
       return data.pockets || [];
@@ -48,7 +55,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["goals", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/goals/${userId}`);
+      const res = await fetch(apiUrl(`/api/goals/${userId}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.goals || [];
@@ -61,7 +68,7 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
     queryKey: ["lena-dena", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/lenadena/${userId}`);
+      const res = await fetch(apiUrl(`/api/lenadena/${userId}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.entries || [];
@@ -123,18 +130,28 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
             <ChevronDown className={`w-5 h-5 text-white/70 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
           </div>
 
-          <h2 className="text-3xl font-bold text-white mb-1">
-            {isPositive ? '' : '-'}{formatAmount(netWorth)}
-          </h2>
+          <div className="flex flex-col items-center mt-2 mb-4">
+            <h2 className="text-3xl font-bold text-white mb-1">
+              {isPositive ? '' : '-'}{formatAmount(netWorth)}
+            </h2>
+            <p className="text-white/80 text-xs bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm">
+              (Assets - Liabilities = Net Worth)
+            </p>
+          </div>
 
-          <div className="flex items-center gap-4 mt-4">
-            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm">
-              <p className="text-white/70 text-xs mb-1">Assets</p>
-              <p className="text-white font-semibold">{formatAmount(totalAssets)}</p>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm border border-white/10">
+              <p className="text-white/70 text-xs mb-1">Assets (Own)</p>
+              <p className="text-white font-semibold flex items-center gap-1">
+                <ArrowUpRight className="w-3 h-3 text-green-300" /> {formatAmount(totalAssets)}
+              </p>
             </div>
-            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm">
-              <p className="text-white/70 text-xs mb-1">Liabilities</p>
-              <p className="text-white font-semibold">{formatAmount(totalLiabilities)}</p>
+            <div className="text-white/50 font-bold">-</div>
+            <div className="flex-1 bg-white/10 rounded-xl p-3 backdrop-blur-sm border border-white/10">
+              <p className="text-white/70 text-xs mb-1">Liabilities (Owe)</p>
+              <p className="text-white font-semibold flex items-center gap-1">
+                <ArrowDownLeft className="w-3 h-3 text-red-300" /> {formatAmount(totalLiabilities)}
+              </p>
             </div>
           </div>
         </div>
@@ -254,22 +271,96 @@ function NetWorthDisplay({ userId }: { userId?: string }) {
   );
 }
 
+// Invite Code Display Component
+function InviteCodeCard({ userId }: { userId?: string }) {
+  const { toast } = useToast();
+  const [inviteCode, setInviteCode] = useState("");
+
+  const { data: inviteData } = useQuery({
+    queryKey: ["inviteCode", userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      // Fetch existing invite code from database
+      const { getInviteCodeByCreator } = await import("@/lib/supabaseApi");
+      const code = await getInviteCodeByCreator(userId);
+      if (code) {
+        setInviteCode(code.code);
+      }
+      return code;
+    },
+    enabled: !!userId
+  });
+
+  if (!inviteCode) return null;
+
+  return (
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100 p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <h4 className="text-sm font-bold text-blue-900 mb-1">Your Family Invite Code</h4>
+          <p className="text-xs text-blue-700 mb-2">Share this code with family members to join</p>
+          <div className="bg-white border border-blue-200 rounded-lg p-2 font-mono font-bold text-lg tracking-widest text-center text-blue-900">
+            {inviteCode}
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="ml-3 border-blue-200 text-blue-700 hover:bg-blue-100 h-10 w-10"
+          onClick={() => {
+            navigator.clipboard.writeText(inviteCode);
+            toast({ title: "Copied!", description: "Invite code copied to clipboard" });
+          }}
+        >
+          <Share2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Profile() {
-  const { user, refreshUser, logout } = useUser();
+  const { user, session, refreshUser, logout, isLoading: isUserLoading } = useUser();
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { showTestNotification } = useNotifications();
+  const [, setLocation] = useLocation();
 
-  // Settings State
-  const [isAppLocked, setIsAppLocked] = useState(user?.settings?.appLock || true);
-  const [isHiddenPockets, setIsHiddenPockets] = useState(user?.settings?.hiddenPockets || false);
+  // Settings State - initialize with safe defaults
+  const [isAppLocked, setIsAppLocked] = useState(true);
+  const [isHiddenPockets, setIsHiddenPockets] = useState(false);
+  const [dailyBriefTime, setDailyBriefTime] = useState("20:00");
 
-  const [language, setLanguage] = useState(user?.language || "en");
-  const [tempLanguage, setTempLanguage] = useState(language);
+  const [language, setLanguage] = useState("en");
+  const [tempLanguage, setTempLanguage] = useState("en");
 
-  const [dailyBriefTime, setDailyBriefTime] = useState(user?.settings?.dailyBriefTime || "20:00");
+  // Sync state when user loads
+  useEffect(() => {
+    if (user) {
+      setIsAppLocked(user.settings?.appLock ?? true);
+      setIsHiddenPockets(user.settings?.hiddenPockets ?? false);
+      setDailyBriefTime(user.settings?.dailyBriefTime || "20:00");
+      setLanguage(user.language || "en");
+      setTempLanguage(user.language || "en");
+    }
+  }, [user]);
+
+  // Handle redirects and empty states -- REMOVED ALL REDIRECTS to strictly follow user request
+  // Now we simply render different UI states based on auth status.
+
+  // Show loading spinner
+
+
+  // Robust ID check
+  const userId = user?.id || session?.user?.id;
+
+  // REMOVED BLOCKERS: User requested to see the UI even if signed out.
+  // We will conditionally render user-specific data instead.
+
   const [tempDailyBriefTime, setTempDailyBriefTime] = useState(dailyBriefTime);
+
+
 
   const [notifications, setNotifications] = useState(user?.settings?.notifications || {
     spending: true, goals: true, family: true, budget: true
@@ -290,8 +381,12 @@ export default function Profile() {
   const [encryptBackup, setEncryptBackup] = useState(false);
   const [backupAccount, setBackupAccount] = useState("");
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   const [tempFamilyType, setTempFamilyType] = useState<"mai_sirf" | "couple" | "joint" | null>(user?.familyType || null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsType, setDetailsType] = useState<"mai_sirf" | "couple" | "joint" | null>(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [banks, setBanks] = useState([
@@ -318,21 +413,32 @@ export default function Profile() {
     }
   }, [user, i18n]);
 
-  const { data: familyMembers = [] } = useQuery({
-    queryKey: ["family", user?.id],
+  // Fetch existing invite code from database
+  const { data: inviteData } = useQuery({
+    queryKey: ["inviteCode", userId],
     queryFn: async () => {
-      if (!user?.id) return [];
-      const res = await fetch(`/api/family/${user.id}`);
+      if (!userId) return null;
+      const { getInviteCodeByCreator } = await import("@/lib/supabaseApi");
+      return await getInviteCodeByCreator(userId);
+    },
+    enabled: !!userId
+  });
+
+  const { data: familyMembers = [] } = useQuery({
+    queryKey: ["family", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(apiUrl(`/api/family/${userId}`));
       if (!res.ok) throw new Error("Failed to fetch family");
       const data = await res.json();
       return data.members;
     },
-    enabled: !!user?.id
+    enabled: !!userId
   });
 
   const addFamilyMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch("/api/family", {
+      const res = await fetch(apiUrl("/api/family"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...data, userId: user?.id, income: parseInt(data.income) || 0 })
@@ -353,19 +459,51 @@ export default function Profile() {
 
   const updateUserMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch(`/api/users/${user?.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to update settings");
-      return res.json();
+      console.log("Updating user directly in Supabase:", user?.id, "Data:", data);
+
+      // Get Supabase session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated - please sign in");
+      }
+
+      // Transform camelCase to snake_case for Supabase
+      const transformedData: any = {};
+      if (data.familyType !== undefined) transformedData.family_type = data.familyType;
+      if (data.language !== undefined) transformedData.language = data.language;
+      if (data.name !== undefined) transformedData.name = data.name;
+      if (data.settings !== undefined) transformedData.settings = data.settings;
+      if (data.incomeSources !== undefined) transformedData.income_sources = data.incomeSources;
+      if (data.isMarried !== undefined) transformedData.is_married = data.isMarried;
+      if (data.hasParents !== undefined) transformedData.has_parents = data.hasParents;
+      if (data.hasSideIncome !== undefined) transformedData.has_side_income = data.hasSideIncome;
+      if (data.onboardingStep !== undefined) transformedData.onboarding_step = data.onboardingStep;
+      if (data.onboardingComplete !== undefined) transformedData.onboarding_complete = data.onboardingComplete;
+
+      console.log("Transformed data for Supabase:", transformedData);
+
+      // Update Supabase directly (no backend API call)
+      const { data: updatedUser, error } = await supabase
+        .from('users')
+        .update(transformedData)
+        .eq('id', user?.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Supabase update error:", error);
+        throw new Error(error.message || "Failed to update settings");
+      }
+
+      console.log("Supabase updated successfully:", updatedUser);
+      return { user: updatedUser };
     },
     onSuccess: async () => {
       await refreshUser();
       toast({ title: "Settings Updated" });
     },
-    onError: () => {
+    onError: (err) => {
+      console.error("Mutation error:", err);
       toast({ title: "Error", description: "Failed to update settings", variant: "destructive" });
     }
   });
@@ -410,9 +548,66 @@ export default function Profile() {
   };
 
   const handleSaveAccountType = () => {
-    if (!tempFamilyType) return;
-    updateUserMutation.mutate({ familyType: tempFamilyType });
-    setAccountTypeOpen(false);
+    console.log("=== ACCOUNT TYPE UPDATE DEBUG ===");
+    console.log("1. handleSaveAccountType called");
+    console.log("2. Selected type:", tempFamilyType);
+    console.log("3. User ID:", user?.id);
+    console.log("4. User object:", user);
+
+    if (!tempFamilyType) {
+      console.log("ERROR: No family type selected");
+      return;
+    }
+
+    if (!user?.id) {
+      console.log("ERROR: User not logged in");
+      toast({
+        title: "Not Logged In",
+        description: "Please sign in to change account type",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    console.log("5. Calling updateUserMutation.mutate...");
+    updateUserMutation.mutate(
+      { familyType: tempFamilyType },
+      {
+        onSuccess: async () => {
+          console.log("6. Mutation SUCCESS - Account type updated");
+          console.log("7. Calling refreshUser...");
+          try {
+            await refreshUser();
+            console.log("8. refreshUser completed successfully");
+            setAccountTypeOpen(false);
+            toast({
+              title: "Account Type Updated",
+              description: `Changed to ${getFamilyTypeLabel(tempFamilyType)}`
+            });
+            console.log("9. Account type update complete ✅");
+          } catch (refreshError) {
+            console.error("ERROR during refreshUser:", refreshError);
+            toast({
+              title: "Update Saved",
+              description: "Please refresh the page to see changes",
+              variant: "default"
+            });
+          }
+        },
+        onError: (error: any) => {
+          console.error("6. Mutation FAILED");
+          console.error("Error object:", error);
+          console.error("Error message:", error?.message);
+          console.error("Error cause:", error?.cause);
+          console.error("Full error:", JSON.stringify(error, null, 2));
+          toast({
+            title: "Update Failed",
+            description: error?.message || "Could not change account type. Please try again.",
+            variant: "destructive"
+          });
+        }
+      }
+    );
   };
 
   const getFamilyTypeLabel = (type: "mai_sirf" | "couple" | "joint" | null) => {
@@ -552,9 +747,12 @@ export default function Profile() {
   const [inviteLoading, setInviteLoading] = useState(false);
 
   const handleGenerateInvite = async () => {
+
+    // Show loading spinner (moved here to prevent hook errors)
+
     setInviteLoading(true);
     try {
-      const res = await fetch("/api/auth/invite/generate", {
+      const res = await fetch(apiUrl("/api/auth/invite/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user?.id }),
@@ -572,6 +770,17 @@ export default function Profile() {
       setInviteLoading(false);
     }
   };
+
+  // Show loading spinner safely after all hooks
+  if (isUserLoading) {
+    return (
+      <MobileShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </MobileShell>
+    );
+  }
 
   return (
     <MobileShell>
@@ -597,7 +806,8 @@ export default function Profile() {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>{t('profile.editProfile')}</DialogTitle>
+                      <DialogTitle>{t('profile.editProfile', 'Edit Profile')}</DialogTitle>
+                      <DialogDescription>Update your profile information</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div>
@@ -605,12 +815,8 @@ export default function Profile() {
                         <Input
                           defaultValue={user?.name || ""}
                           onChange={(e) => handleSaveSettings("name", e.target.value)}
+                          placeholder="Enter your name"
                         />
-                      </div>
-                      <div className="pt-2">
-                        <Button variant="outline" className="w-full" onClick={() => toast({ title: "Coming Soon", description: "Password change will be available soon." })}>
-                          Change Password
-                        </Button>
                       </div>
                     </div>
                     <DialogFooter>
@@ -645,13 +851,53 @@ export default function Profile() {
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <NetWorthDisplay userId={user?.id} />
+              <NetWorthDisplay userId={userId} />
             </div>
             <div className="h-10 w-10 bg-gray-800 rounded-full flex items-center justify-center">
               <Shield className="w-5 h-5 text-green-400" />
             </div>
           </div>
         </div>
+
+        {/* Email Verification Banner */}
+        {user?.emailVerified === false && (
+          <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <Mail className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-amber-900">Email Not Verified</h3>
+              <p className="text-xs text-amber-700 mt-0.5">Please verify your email for account security and password recovery.</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100"
+              disabled={isResendingVerification}
+              onClick={async () => {
+                if (!user?.email) return;
+                setIsResendingVerification(true);
+                try {
+                  await resendVerificationEmail(user.email);
+                  toast({
+                    title: "Verification email sent!",
+                    description: "Check your inbox and click the link to verify.",
+                  });
+                } catch (error: any) {
+                  toast({
+                    title: "Failed to send",
+                    description: error.message || "Please try again later.",
+                    variant: "destructive"
+                  });
+                } finally {
+                  setIsResendingVerification(false);
+                }
+              }}
+            >
+              {isResendingVerification ? "Sending..." : "Verify Now"}
+            </Button>
+          </div>
+        )}
 
         {/* Menu Items */}
         <div className="p-4 space-y-6">
@@ -686,7 +932,7 @@ export default function Profile() {
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>{editingBankId ? "Edit Bank" : "Add Bank / UPI"}</DialogTitle>
-                      <DialogDescription>Link your bank account or UPI for payments</DialogDescription>
+                      <DialogDescription>Store account details locally (Real Bank Sync Coming Soon)</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div>
@@ -732,6 +978,9 @@ export default function Profile() {
           {/* Family & Safety - Hidden for mai_sirf users */}
           {user?.familyType !== 'mai_sirf' && (
             <section className="space-y-3">
+              {/* Invite Code Display Card - Persistent */}
+              <InviteCodeCard userId={user?.id} />
+
               <div className="flex justify-between items-center px-2">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t('profile.familyMembers')} ({familyMembers.length})</h3>
                 <Dialog open={addFamilyOpen} onOpenChange={setAddFamilyOpen}>
@@ -747,15 +996,16 @@ export default function Profile() {
                       {/* Invite Code Section */}
                       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                         <h4 className="text-sm font-bold text-blue-900 mb-2">Invite via Code</h4>
-                        <p className="text-xs text-blue-700 mb-3">Share this code with your partner/family member to let them join.</p>
+                        <p className="text-xs text-blue-700 mb-3">Share this code with your partner/family member to let them join. Code never expires.</p>
 
-                        {generatedInviteCode ? (
+                        {/* Always show the existing invite code from InviteCodeCard data or generate */}
+                        {inviteData?.code || generatedInviteCode ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-white border border-blue-200 rounded-lg p-2 text-center font-mono font-bold text-lg tracking-widest">
-                              {generatedInviteCode}
+                              {inviteData?.code || generatedInviteCode}
                             </div>
                             <Button variant="outline" size="icon" onClick={() => {
-                              navigator.clipboard.writeText(generatedInviteCode);
+                              navigator.clipboard.writeText(inviteData?.code || generatedInviteCode);
                               toast({ title: "Copied!", description: "Code copied to clipboard" });
                             }}>
                               <Share2 className="w-4 h-4" />
@@ -768,7 +1018,7 @@ export default function Profile() {
                             variant="outline"
                             className="w-full border-blue-200 text-blue-700 hover:bg-blue-100"
                           >
-                            {inviteLoading ? "Generating..." : "Generate Invite Code"}
+                            {inviteLoading ? "Getting Code..." : "Get Your Invite Code"}
                           </Button>
                         )}
                       </div>
@@ -961,6 +1211,14 @@ export default function Profile() {
                 </DialogContent>
               </Dialog>
               <Separator />
+
+              <MenuItem
+                icon={Lock}
+                label={t('profile.changePassword', 'Change Password')}
+                sublabel="Update your account password securely"
+                onClick={() => setChangePasswordOpen(true)}
+              />
+              <Separator />
               <div className="flex items-center justify-between p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="h-10 w-10 rounded-full bg-gray-50 text-gray-600 flex items-center justify-center">
@@ -1134,14 +1392,31 @@ export default function Profile() {
                       <div
                         key={type.id}
                         onClick={() => setTempFamilyType(type.id as any)}
-                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${tempFamilyType === type.id ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
+                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all relative ${tempFamilyType === type.id ? "border-blue-600 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
                       >
+                        {tempFamilyType === type.id && (
+                          <div className="absolute top-2 right-2 bg-blue-600 rounded-full p-0.5">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
                         <div className="flex items-center gap-4">
                           <span className="text-3xl">{type.icon}</span>
-                          <div>
+                          <div className="flex-1">
                             <h3 className="font-bold text-gray-900">{type.label}</h3>
                             <p className="text-xs text-gray-500">{type.desc}</p>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailsType(type.id as any);
+                              setDetailsOpen(true);
+                            }}
+                          >
+                            <Info className="w-5 h-5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1152,6 +1427,16 @@ export default function Profile() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              {/* Account Type Details Sheet */}
+              {detailsType && (
+                <AccountTypeDetailsSheet
+                  type={detailsType}
+                  open={detailsOpen}
+                  onOpenChange={setDetailsOpen}
+                  onSelect={() => setTempFamilyType(detailsType)}
+                />
+              )}
             </div>
           </section>
 
@@ -1200,42 +1485,9 @@ export default function Profile() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Separator />
-              <Dialog>
-                <DialogTrigger asChild>
-                  <div className="flex items-center justify-between p-4 hover:bg-red-50 active:bg-red-100 transition-colors cursor-pointer">
-                    <div className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
-                        <Trash2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-red-600">{t('profile.deleteAccount')}</p>
-                        <p className="text-xs text-red-400">{t('profile.permanentlyRemove')}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-red-300" />
-                  </div>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="text-red-600">{t('profile.deleteAccountPermanently')}</DialogTitle>
-                    <DialogDescription>
-                      {t('profile.deleteWarning')}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>{t('profile.typeDelete')}</Label>
-                      <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder="DELETE" />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="destructive" onClick={handleDeleteAccount} disabled={deleteConfirm !== "DELETE"}>Delete Permanently</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
             </div>
           </section>
+
 
           {/* Support & Logout */}
           <section className="space-y-3">
@@ -1280,14 +1532,75 @@ export default function Profile() {
               </button>
             </div>
 
+            {/* Danger Zone */}
+            <section className="space-y-3 pt-6">
+              <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest px-2">Danger Zone</h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden">
+                <DestructiveActionDialog
+                  title="Delete Account"
+                  description="This action cannot be undone. All your data including transactions, pockets, and goals will be permanently deleted."
+                  confirmText="Delete My Account"
+                  onConfirm={async () => {
+                    if (!user?.id) return;
+                    try {
+                      const res = await fetch(apiUrl(`/api/users/${user.id}`), {
+                        method: "DELETE",
+                        headers: {
+                          // Pass auth token for potential Supabase/Admin checks
+                          "Authorization": session?.access_token ? `Bearer ${session.access_token}` : ""
+                        }
+                      });
+
+                      if (!res.ok) {
+                        throw new Error("Failed to delete account");
+                      }
+
+                      toast({ title: "Account Deleted", description: "Your account has been permanently deleted." });
+                      // Add a small delay for user to read toast before redirecting
+                      setTimeout(() => handleLogout(), 1500);
+                    } catch (error) {
+                      console.error("Delete error:", error);
+                      toast({
+                        variant: "destructive",
+                        title: "Error",
+                        description: "Failed to delete account. Please contact support."
+                      });
+                    }
+                  }}
+                  trigger={
+                    <button className="w-full flex items-center justify-between p-4 hover:bg-red-50 active:bg-red-100 transition-colors cursor-pointer group">
+                      <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center group-hover:bg-red-100">
+                          <Trash2 className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-semibold text-red-600">Delete Account</p>
+                          <p className="text-xs text-red-400">Permanently remove all data</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-red-200" />
+                    </button>
+                  }
+                />
+              </div>
+            </section>
+
             <div className="pt-4 text-center pb-20">
               <p className="text-[10px] text-gray-400 mt-2">SahKosh v1.0.0 (Beta)</p>
               <p className="text-[10px] text-gray-300">Made with ❤️ in India</p>
             </div>
           </section>
         </div>
-      </div>
-    </MobileShell>
+      </div >
+
+      {/* Change Password Sheet */}
+      < ChangePasswordSheet
+        isOpen={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)
+        }
+        userEmail={user?.email || ""}
+      />
+    </MobileShell >
   );
 }
 

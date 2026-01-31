@@ -9,9 +9,11 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<schema.User | undefined>;
   createUser(user: schema.InsertUser): Promise<schema.User>;
   updateUser(id: string, data: Partial<schema.InsertUser>): Promise<schema.User>;
+  syncUser(user: any): Promise<schema.User>;
   hashPassword(password: string): Promise<string>;
   verifyPassword(password: string, hash: string): Promise<boolean>;
   getLinkedMembers(adminId: string): Promise<schema.User[]>;
+  deleteUser(id: string): Promise<void>;
 
   // Invite Codes
   createInviteCode(code: schema.InsertInviteCode): Promise<schema.InviteCode>;
@@ -33,22 +35,27 @@ export interface IStorage {
 
   // Pockets
   getUserPockets(userId: string): Promise<schema.Pocket[]>;
+  getPocket(id: number): Promise<schema.Pocket | undefined>;
   createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket>;
   updatePocket(id: number, data: Partial<schema.InsertPocket>): Promise<schema.Pocket>;
 
   // Transactions
   getUserTransactions(userId: string, limit?: number): Promise<schema.Transaction[]>;
   createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction>;
+  updateTransaction(id: number, transaction: Partial<schema.InsertTransaction>): Promise<schema.Transaction>;
+  deleteTransaction(id: number): Promise<void>;
 
   // Lena Dena
   getUserLenaDena(userId: string): Promise<schema.LenaDena[]>;
   createLenaDena(entry: schema.InsertLenaDena): Promise<schema.LenaDena>;
   updateLenaDena(id: number, data: Partial<schema.InsertLenaDena>): Promise<schema.LenaDena>;
+  deleteLenaDena(id: number): Promise<void>;
 
   // Budgets
   getUserBudgets(userId: string, month: string): Promise<schema.Budget[]>;
   createBudget(budget: schema.InsertBudget): Promise<schema.Budget>;
   updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget>;
+  deleteBudget(id: number): Promise<void>;
 
   // Family
   getUserFamilyMembers(userId: string): Promise<schema.FamilyMember[]>;
@@ -58,6 +65,7 @@ export interface IStorage {
   getUserGoals(userId: string): Promise<schema.Goal[]>;
   createGoal(goal: schema.InsertGoal): Promise<schema.Goal>;
   updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal>;
+  deleteGoal(id: number): Promise<void>;
 
   // Tax Data
   getTaxData(userId: string, year: string): Promise<schema.TaxData | undefined>;
@@ -85,6 +93,11 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getUserByEmail(email: string): Promise<schema.User | undefined> {
+    const result = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+    return result[0];
+  }
+
   async createUser(user: schema.InsertUser): Promise<schema.User> {
     const result = await db.insert(schema.users).values(user).returning();
     return result[0];
@@ -95,8 +108,46 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async syncUser(user: any): Promise<schema.User> {
+    // Explicit sync: Check existence, then update or insert
+    const existing = await this.getUser(user.id);
+    if (existing) {
+      console.log(`syncUser: Updating existing user ${user.id}`);
+      return await this.updateUser(user.id, user);
+    } else {
+      console.log(`syncUser: Inserting new user ${user.id}`);
+      // Force insert with ID
+      const result = await db.insert(schema.users).values(user).returning();
+      if (!result[0]) throw new Error("Sync Insert returned no data");
+      return result[0];
+    }
+  }
+
   async getLinkedMembers(adminId: string): Promise<schema.User[]> {
     return await db.select().from(schema.users).where(eq(schema.users.linkedAdminId, adminId));
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    // 1. Transactions & Transfers
+    await db.delete(schema.transactions).where(eq(schema.transactions.userId, id));
+    await db.delete(schema.pocketTransfers).where(eq(schema.pocketTransfers.userId, id));
+
+    // 2. Core Financial Data
+    await db.delete(schema.pockets).where(eq(schema.pockets.userId, id));
+    await db.delete(schema.budgets).where(eq(schema.budgets.userId, id));
+    await db.delete(schema.goals).where(eq(schema.goals.userId, id));
+    await db.delete(schema.lenaDena).where(eq(schema.lenaDena.userId, id));
+    await db.delete(schema.subscriptions).where(eq(schema.subscriptions.userId, id));
+    await db.delete(schema.taxData).where(eq(schema.taxData.userId, id));
+
+    // 3. Family & Auth
+    await db.delete(schema.familyMembers).where(eq(schema.familyMembers.userId, id));
+    await db.delete(schema.joinRequests).where(eq(schema.joinRequests.requesterId, id));
+    await db.delete(schema.inviteCodes).where(eq(schema.inviteCodes.creatorId, id));
+    await db.delete(schema.otps).where(eq(schema.otps.phone, (await this.getUser(id))?.phone || ''));
+
+    // 4. Finally delete user
+    await db.delete(schema.users).where(eq(schema.users.id, id));
   }
 
   // Invite Codes
@@ -321,7 +372,79 @@ export class DatabaseStorage implements IStorage {
 
   async createTransaction(transaction: schema.InsertTransaction): Promise<schema.Transaction> {
     const result = await db.insert(schema.transactions).values(transaction).returning();
-    return result[0];
+    const newTx = result[0];
+
+    // Sync with Budget if it's an expense
+    if (newTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(newTx, 'add');
+    }
+
+    return newTx;
+  }
+
+  async updateTransaction(id: number, data: Partial<schema.InsertTransaction>): Promise<schema.Transaction> {
+    // 1. Get original transaction to revert its effect
+    const originalTx = await db.select().from(schema.transactions).where(eq(schema.transactions.id, id)).limit(1).then(res => res[0]);
+    if (!originalTx) throw new Error("Transaction not found");
+
+    // 2. Revert original budget effect
+    if (originalTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(originalTx, 'remove');
+    }
+
+    // 3. Update transaction
+    const result = await db.update(schema.transactions).set(data).where(eq(schema.transactions.id, id)).returning();
+    const updatedTx = result[0];
+
+    // 4. Apply new budget effect
+    if (updatedTx.type === 'debit') {
+      await this.syncBudgetWithTransaction(updatedTx, 'add');
+    }
+
+    return updatedTx;
+  }
+
+  async deleteTransaction(id: number): Promise<void> {
+    const tx = await db.select().from(schema.transactions).where(eq(schema.transactions.id, id)).limit(1).then(res => res[0]);
+    if (tx && tx.type === 'debit') {
+      await this.syncBudgetWithTransaction(tx, 'remove');
+    }
+    await db.delete(schema.transactions).where(eq(schema.transactions.id, id));
+  }
+
+  // Helper to sync budget
+  private async syncBudgetWithTransaction(tx: schema.Transaction, operation: 'add' | 'remove') {
+    if (!tx.category || !tx.amount) return;
+
+    // Determine month string (YYYY-MM) from transaction date or now
+    const date = tx.date ? new Date(tx.date) : new Date();
+    const month = date.toISOString().slice(0, 7);
+
+    // Find matching budget
+    const budgets = await db.select().from(schema.budgets)
+      .where(and(
+        eq(schema.budgets.userId, tx.userId),
+        eq(schema.budgets.category, tx.category),
+        eq(schema.budgets.month, month)
+      ))
+      .limit(1);
+
+    if (budgets.length > 0) {
+      const budget = budgets[0];
+      let newSpent = budget.spent || 0;
+
+      if (operation === 'add') newSpent += tx.amount;
+      else newSpent -= tx.amount;
+
+      // Prevent negative spent (optional, but good for safety)
+      if (newSpent < 0) newSpent = 0;
+
+      await db.update(schema.budgets)
+        .set({ spent: newSpent })
+        .where(eq(schema.budgets.id, budget.id));
+
+      console.log(`Budget synced: ${operation} ₹${tx.amount} to/from ${budget.category} (${month})`);
+    }
   }
 
   // Lena Dena
@@ -341,6 +464,10 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async deleteLenaDena(id: number): Promise<void> {
+    await db.delete(schema.lenaDena).where(eq(schema.lenaDena.id, id));
+  }
+
   // Budgets
   async getUserBudgets(userId: string, month: string): Promise<schema.Budget[]> {
     return await db.select().from(schema.budgets)
@@ -355,6 +482,10 @@ export class DatabaseStorage implements IStorage {
   async updateBudget(id: number, data: Partial<schema.InsertBudget>): Promise<schema.Budget> {
     const result = await db.update(schema.budgets).set(data).where(eq(schema.budgets.id, id)).returning();
     return result[0];
+  }
+
+  async deleteBudget(id: number): Promise<void> {
+    await db.delete(schema.budgets).where(eq(schema.budgets.id, id));
   }
 
   // Family
@@ -382,6 +513,10 @@ export class DatabaseStorage implements IStorage {
   async updateGoal(id: number, data: Partial<schema.InsertGoal>): Promise<schema.Goal> {
     const result = await db.update(schema.goals).set(data).where(eq(schema.goals.id, id)).returning();
     return result[0];
+  }
+
+  async deleteGoal(id: number): Promise<void> {
+    await db.delete(schema.goals).where(eq(schema.goals.id, id));
   }
 
   // Auth helpers

@@ -1,0 +1,43 @@
+{
+    "installCommand": "npm install --legacy-peer-deps",
+    "buildCommand": "npm run build:web",
+    "outputDirectory": "dist/public",
+    "framework": "vite",
+    "headers": [
+        {
+            "source": "/(.*)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/html; charset=utf-8"
+                },
+                {
+                    "key": "X-Content-Type-Options",
+                    "value": "nosniff"
+                }
+            ]
+        },
+        {
+            "source": "/assets/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=31536000, immutable"
+                }
+            ]
+        }
+    ],
+    "routes": [
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/assets/(.*)",
+            "dest": "/assets/$1"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
+        }
+    ]
+}

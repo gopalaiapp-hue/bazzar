@@ -1,13 +1,11 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-    appId: 'com.sahkosh.app',
+    appId: 'com.gopalai.sahkosh',
     appName: 'SahKosh',
     webDir: 'dist/public',
     server: {
-        androidScheme: 'https',
-        // Removed remote URL - app now loads from bundled dist/public
-        cleartext: false
+        androidScheme: 'https'
     },
     android: {
         buildOptions: {
@@ -16,13 +14,6 @@ const config: CapacitorConfig = {
             keystoreAlias: undefined,
             keystoreAliasPassword: undefined,
             releaseType: 'APK'
-        }
-    },
-    plugins: {
-        SplashScreen: {
-            launchShowDuration: 2000,
-            backgroundColor: '#1E40AF',
-            showSpinner: false
         }
     }
 };

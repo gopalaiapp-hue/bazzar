@@ -1,0 +1,53 @@
+name: Deploy to Indus Appstore
+
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Web Assets
+        run: npm run build:web
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android Bundle
+        run: |
+          cd android
+          ./gradlew bundleRelease
+
+      - name: Upload to Indus Appstore
+        uses: yogeshpaliyal/upload-indus-appstore@v0.0.7
+        with:
+          type: 'UPLOAD_AAB'
+          apiKey: ${{ secrets.INDUS_API_KEY }}
+          packageName: 'com.sahkosh.app'
+          aabFilePath: 'android/app/build/outputs/bundle/release/app-release.aab'
+          signingKeyBase64: ${{ secrets.INDUS_SIGNING_KEY_BASE64 }}
+          keyPassword: ${{ secrets.INDUS_KEY_PASSWORD }}
+          keystoreAlias: ${{ secrets.INDUS_KEY_ALIAS }}
+          keystorePassword: ${{ secrets.INDUS_KEYSTORE_PASSWORD }}

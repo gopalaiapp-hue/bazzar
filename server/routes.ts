@@ -46,7 +46,7 @@ export async function registerRoutes(
       const invite = await storage.createInviteCode({
         code,
         creatorId: userId,
-        familyName: familyName || null,
+        familyName: familyName || undefined,
         autoAccept: false,
         status: "active"
       });
@@ -425,16 +425,142 @@ export async function registerRoutes(
     }
   });
 
-  // Update User
+  // Helper function to convert camelCase to snake_case for user updates
+  function transformUserUpdate(data: any) {
+    const transformed: any = {};
+
+    // Map camelCase to snake_case
+    if (data.familyType !== undefined) transformed.family_type = data.familyType;
+    if (data.incomeSources !== undefined) transformed.income_sources = data.incomeSources;
+    if (data.isMarried !== undefined) transformed.is_married = data.isMarried;
+    if (data.hasParents !== undefined) transformed.has_parents = data.hasParents;
+    if (data.hasSideIncome !== undefined) transformed.has_side_income = data.hasSideIncome;
+    if (data.onboardingStep !== undefined) transformed.onboarding_step = data.onboardingStep;
+    if (data.onboardingComplete !== undefined) transformed.onboarding_complete = data.onboardingComplete;
+    if (data.linkedAdminId !== undefined) transformed.linked_admin_id = data.linkedAdminId;
+    if (data.hashedPassword !== undefined) transformed.hashed_password = data.hashedPassword;
+    if (data.lastActiveAt !== undefined) transformed.last_active_at = data.lastActiveAt;
+    if (data.createdAt !== undefined) transformed.created_at = data.createdAt;
+
+    // Pass through fields that don't need transformation
+    if (data.id !== undefined) transformed.id = data.id;
+    if (data.phone !== undefined) transformed.phone = data.phone;
+    if (data.email !== undefined) transformed.email = data.email;
+    if (data.name !== undefined) transformed.name = data.name;
+    if (data.language !== undefined) transformed.language = data.language;
+    if (data.settings !== undefined) transformed.settings = data.settings;
+    if (data.role !== undefined) transformed.role = data.role;
+
+    return transformed;
+  }
+
+  // Delete User - Cascading delete
+  app.delete("/api/users/:id", async (req, res) => {
+    try {
+      console.log(`Request to delete user: ${req.params.id}`);
+
+      // 1. Delete from Local DB (Cascading)
+      await storage.deleteUser(req.params.id);
+      console.log(`Local data deleted for user: ${req.params.id}`);
+
+      // 2. Attempt Supabase Delete (Standard users can't delete themselves, usually needs Admin key)
+      // We will only log this attempt. The client should sign out which invalidates the session.
+      // If you have a mechanics for Edge Function or Service Role delete, add it here.
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
+      return res.status(500).json({ error: "Failed to delete user: " + error.message });
+    }
+  });
+
+  // Update User - Supabase is the PRIMARY source of truth
   app.patch("/api/users/:id", async (req, res) => {
     try {
       console.log(`Updating user ${req.params.id} with data:`, req.body);
-      const user = await storage.updateUser(req.params.id, req.body);
-      console.log("User updated successfully:", user);
-      return res.json({ user });
+      const transformedData = transformUserUpdate(req.body);
+      console.log(`Transformed data for Supabase:`, transformedData);
+
+      // Update SUPABASE FIRST (primary source of truth)
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        console.error("Supabase credentials not configured");
+        return res.status(500).json({ error: "Database not configured" });
+      }
+
+      // Extract user's auth token from request headers
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        console.error("No authorization header found");
+        return res.status(401).json({ error: "Unauthorized - Please sign in" });
+      }
+
+      // Create Supabase client with user's auth token
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        global: {
+          headers: {
+            Authorization: authHeader
+          }
+        }
+      });
+
+      // Update the user (not upsert, since user should already exist)
+      console.log("Updating Supabase user:", req.params.id, transformedData);
+
+      const { data: updatedUser, error: updateError } = await supabase
+        .from('users')
+        .update(transformedData)
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error("Failed to update Supabase:", updateError);
+        return res.status(500).json({ error: "Failed to update user: " + updateError.message });
+      }
+
+      if (!updatedUser) {
+        console.error("Supabase update returned no data");
+        return res.status(500).json({ error: "Failed to update user: No data returned" });
+      }
+
+      console.log("Supabase upserted successfully:", updatedUser);
+
+      // Optionally sync to local DB (non-blocking, for caching purposes)
+      try {
+        await storage.syncUser(updatedUser);
+        console.log("Local DB synced");
+      } catch (syncErr) {
+        console.warn("Could not sync to local DB:", syncErr);
+        // Don't fail - Supabase update succeeded
+      }
+
+      return res.json({ user: updatedUser });
     } catch (error) {
       console.error("Failed to update user:", error);
       return res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
+  // Sync user from Supabase to Local DB
+  app.post("/api/users/sync", async (req, res) => {
+    try {
+      console.log("Syncing user to local DB:", req.body.id);
+      // Transform camelCase to snake_case for database
+      const transformedData = transformUserUpdate(req.body);
+      // Add the ID if not already transformed
+      if (req.body.id && !transformedData.id) {
+        transformedData.id = req.body.id;
+      }
+      console.log("Transformed sync data:", transformedData);
+      const user = await storage.syncUser(transformedData);
+      return res.json({ user });
+    } catch (error: any) {
+      console.error("Sync user error:", error);
+      return res.status(500).json({ error: "Failed to sync user: " + error.message });
     }
   });
 
@@ -626,6 +752,24 @@ export async function registerRoutes(
 
   // ========== POCKETS ROUTES ==========
 
+  // Get single pocket detail - MUST come before /api/pockets/:userId to avoid conflicts
+  app.get("/api/pockets/detail/:id", async (req, res) => {
+    try {
+      const pocketId = parseInt(req.params.id);
+      console.log("Fetching pocket detail for ID:", pocketId);
+      const pocket = await storage.getPocket(pocketId);
+      if (!pocket) {
+        console.log("Pocket not found for ID:", pocketId);
+        return res.status(404).json({ error: "Pocket not found" });
+      }
+      console.log("Pocket found:", pocket.name);
+      return res.json(pocket);
+    } catch (error: any) {
+      console.error("Pocket detail error:", error);
+      return res.status(500).json({ error: "Failed to fetch pocket: " + error.message });
+    }
+  });
+
   app.get("/api/pockets/:userId", async (req, res) => {
     try {
       const pockets = await storage.getUserPockets(req.params.userId);
@@ -754,6 +898,24 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/transactions/:id", async (req, res) => {
+    try {
+      const transaction = await storage.updateTransaction(parseInt(req.params.id), req.body);
+      return res.json({ transaction });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to update transaction" });
+    }
+  });
+
+  app.delete("/api/transactions/:id", async (req, res) => {
+    try {
+      await storage.deleteTransaction(parseInt(req.params.id));
+      return res.json({ success: true });
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to delete transaction" });
+    }
+  });
+
   // ========== LENA-DENA ROUTES ==========
 
   app.get("/api/lenadena/:userId", async (req, res) => {
@@ -808,6 +970,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      console.error("Budget creation error:", error);
       return res.status(500).json({ error: "Failed to create budget" });
     }
   });
@@ -990,58 +1153,333 @@ export async function registerRoutes(
     }
   });
 
-  // Get single pocket
-  app.get("/api/pockets/detail/:id", async (req, res) => {
-    try {
-      const pocketId = parseInt(req.params.id);
-      const pocket = await storage.getPocket(pocketId);
-      if (!pocket) return res.status(404).json({ error: "Pocket not found" });
-      return res.json(pocket);
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to fetch pocket" });
-    }
-  });
 
   // ========== SUBSCRIPTIONS ROUTES ==========
 
   // Get user subscriptions
   app.get("/api/subscriptions/:userId", async (req, res) => {
     try {
+      console.log("Fetching subscriptions for user:", req.params.userId);
       const subscriptions = await storage.getUserSubscriptions(req.params.userId);
+      console.log("Found subscriptions:", subscriptions.length);
       return res.json({ subscriptions });
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to fetch subscriptions" });
+    } catch (error: any) {
+      console.error("Fetch subscriptions error:", error);
+      return res.status(500).json({ error: "Failed to fetch subscriptions: " + error.message });
     }
   });
 
   // Create subscription
   app.post("/api/subscriptions", async (req, res) => {
     try {
-      const subscription = await storage.createSubscription(req.body);
+      console.log("Creating subscription with data:", req.body);
+
+      // Validate required fields
+      const { userId, name, amount } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Subscription name is required" });
+      }
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ error: "Valid amount is required" });
+      }
+
+      // Prepare subscription data with defaults
+      const subscriptionData = {
+        userId: req.body.userId,
+        name: req.body.name.trim(),
+        amount: parseInt(req.body.amount),
+        dueDate: req.body.dueDate ? parseInt(req.body.dueDate) : null,
+        category: req.body.category || "other",
+        icon: req.body.icon || "📺",
+        isActive: req.body.isActive !== undefined ? req.body.isActive : true,
+        reminderDays: req.body.reminderDays ? parseInt(req.body.reminderDays) : 3,
+        notifyOnRenewal: req.body.notifyOnRenewal !== undefined ? req.body.notifyOnRenewal : true,
+      };
+
+      console.log("Prepared subscription data:", subscriptionData);
+      const subscription = await storage.createSubscription(subscriptionData);
+      console.log("Subscription created successfully:", subscription);
       return res.json({ subscription });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Create subscription error:", error);
-      return res.status(500).json({ error: "Failed to create subscription" });
+      return res.status(500).json({ error: "Failed to create subscription: " + error.message });
     }
   });
 
   // Update subscription
   app.patch("/api/subscriptions/:id", async (req, res) => {
     try {
+      console.log("Updating subscription:", req.params.id, "with data:", req.body);
       const subscription = await storage.updateSubscription(parseInt(req.params.id), req.body);
+      console.log("Subscription updated:", subscription);
       return res.json({ subscription });
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to update subscription" });
+    } catch (error: any) {
+      console.error("Update subscription error:", error);
+      return res.status(500).json({ error: "Failed to update subscription: " + error.message });
     }
   });
 
   // Delete subscription
   app.delete("/api/subscriptions/:id", async (req, res) => {
     try {
+      console.log("Deleting subscription:", req.params.id);
       await storage.deleteSubscription(parseInt(req.params.id));
+      console.log("Subscription deleted successfully");
       return res.json({ success: true });
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to delete subscription" });
+    } catch (error: any) {
+      console.error("Delete subscription error:", error);
+      return res.status(500).json({ error: "Failed to delete subscription: " + error.message });
+    }
+  });
+
+  // ========== GOALS ROUTES ==========
+
+  // Get user goals
+  app.get("/api/goals/:userId", async (req, res) => {
+    try {
+      console.log("Fetching goals for user:", req.params.userId);
+      const goals = await storage.getUserGoals(req.params.userId);
+      console.log("Found goals:", goals.length);
+      return res.json({ goals });
+    } catch (error: any) {
+      console.error("Fetch goals error:", error);
+      return res.status(500).json({ error: "Failed to fetch goals: " + error.message });
+    }
+  });
+
+  // Create goal
+  app.post("/api/goals", async (req, res) => {
+    try {
+      console.log("Creating goal with data:", req.body);
+
+      // Validate required fields
+      const { userId, name, targetAmount } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Goal name is required" });
+      }
+      if (!targetAmount || targetAmount <= 0) {
+        return res.status(400).json({ error: "Valid target amount is required" });
+      }
+
+      // Prepare goal data with defaults
+      const goalData = {
+        userId: req.body.userId,
+        name: req.body.name.trim(),
+        targetAmount: parseInt(req.body.targetAmount),
+        currentAmount: 0,
+        deadline: req.body.deadline ? new Date(req.body.deadline) : null,
+        icon: req.body.icon || "🎯",
+        isPriority: req.body.isPriority || false,
+      };
+
+      console.log("Prepared goal data:", goalData);
+      const goal = await storage.createGoal(goalData);
+      console.log("Goal created successfully:", goal);
+      return res.json({ goal });
+    } catch (error: any) {
+      console.error("Create goal error:", error);
+      return res.status(500).json({ error: "Failed to create goal: " + error.message });
+    }
+  });
+
+  // Update goal
+  app.patch("/api/goals/:id", async (req, res) => {
+    try {
+      console.log("Updating goal:", req.params.id, "with data:", req.body);
+      const goal = await storage.updateGoal(parseInt(req.params.id), req.body);
+      console.log("Goal updated:", goal);
+      return res.json({ goal });
+    } catch (error: any) {
+      console.error("Update goal error:", error);
+      return res.status(500).json({ error: "Failed to update goal: " + error.message });
+    }
+  });
+
+  // Delete goal  
+  app.delete("/api/goals/:id", async (req, res) => {
+    try {
+      console.log("Deleting goal:", req.params.id);
+      await storage.deleteGoal(parseInt(req.params.id));
+      console.log("Goal deleted successfully");
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete goal error:", error);
+      return res.status(500).json({ error: "Failed to delete goal: " + error.message });
+    }
+  });
+
+  // ========== LENA DENA ROUTES ==========
+
+  // Get user lena-dena entries
+  app.get("/api/lena-dena/:userId", async (req, res) => {
+    try {
+      console.log("Fetching lena-dena for user:", req.params.userId);
+      const entries = await storage.getUserLenaDena(req.params.userId);
+      console.log("Found lena-dena entries:", entries.length);
+      return res.json({ entries });
+    } catch (error: any) {
+      console.error("Fetch lena-dena error:", error);
+      return res.status(500).json({ error: "Failed to fetch lena-dena: " + error.message });
+    }
+  });
+
+  // Create lena-dena entry
+  app.post("/api/lena-dena", async (req, res) => {
+    try {
+      console.log("Creating lena-dena entry with data:", req.body);
+
+      // Validate required fields
+      const { userId, name, amount, type, dueDate } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Name is required" });
+      }
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ error: "Valid amount is required" });
+      }
+      if (!type || !["gave", "took"].includes(type)) {
+        return res.status(400).json({ error: "Type must be 'gave' or 'took'" });
+      }
+      if (!dueDate) {
+        return res.status(400).json({ error: "Due date is required" });
+      }
+
+      // Prepare entry data
+      const entryData = {
+        userId: req.body.userId,
+        name: req.body.name.trim(),
+        amount: parseInt(req.body.amount),
+        type: req.body.type,
+        dueDate: new Date(req.body.dueDate),
+        status: "pending" as const,
+        notes: req.body.notes || null,
+      };
+
+      console.log("Prepared lena-dena data:", entryData);
+      const entry = await storage.createLenaDena(entryData);
+      console.log("Lena-dena entry created:", entry);
+      return res.json({ entry });
+    } catch (error: any) {
+      console.error("Create lena-dena error:", error);
+      return res.status(500).json({ error: "Failed to create lena-dena: " + error.message });
+    }
+  });
+
+  // Update lena-dena entry
+  app.patch("/api/lena-dena/:id", async (req, res) => {
+    try {
+      console.log("Updating lena-dena:", req.params.id, "with data:", req.body);
+      const entry = await storage.updateLenaDena(parseInt(req.params.id), req.body);
+      console.log("Lena-dena updated:", entry);
+      return res.json({ entry });
+    } catch (error: any) {
+      console.error("Update lena-dena error:", error);
+      return res.status(500).json({ error: "Failed to update lena-dena: " + error.message });
+    }
+  });
+
+  // Delete lena-dena entry
+  app.delete("/api/lena-dena/:id", async (req, res) => {
+    try {
+      console.log("Deleting lena-dena:", req.params.id);
+      await storage.deleteLenaDena(parseInt(req.params.id));
+      console.log("Lena-dena deleted successfully");
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete lena-dena error:", error);
+      return res.status(500).json({ error: "Failed to delete lena-dena: " + error.message });
+    }
+  });
+
+  // ========== BUDGETS ROUTES ==========
+
+  // Get user budgets for current month
+  app.get("/api/budgets/:userId", async (req, res) => {
+    try {
+      console.log("Fetching budgets for user:", req.params.userId);
+      // Get current month in YYYY-MM format
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const budgets = await storage.getUserBudgets(req.params.userId, currentMonth);
+      console.log("Found budgets:", budgets.length);
+      return res.json({ budgets });
+    } catch (error: any) {
+      console.error("Fetch budgets error:", error);
+      return res.status(500).json({ error: "Failed to fetch budgets: " + error.message });
+    }
+  });
+
+  // Create budget
+  app.post("/api/budgets", async (req, res) => {
+    try {
+      console.log("Creating budget with data:", req.body);
+
+      // Validate required fields
+      const { userId, category, limit, month } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      if (!category || !category.trim()) {
+        return res.status(400).json({ error: "Category is required" });
+      }
+      if (!limit || limit <= 0) {
+        return res.status(400).json({ error: "Valid limit is required" });
+      }
+      if (!month) {
+        return res.status(400).json({ error: "Month is required" });
+      }
+
+      // Prepare budget data
+      const budgetData = {
+        userId: req.body.userId,
+        category: req.body.category.trim(),
+        limit: parseInt(req.body.limit),
+        spent: req.body.spent || 0,
+        month: req.body.month,
+        icon: req.body.icon || "💰",
+        color: req.body.color || "bg-blue-100 text-blue-600",
+      };
+
+      console.log("Prepared budget data:", budgetData);
+      const budget = await storage.createBudget(budgetData);
+      console.log("Budget created:", budget);
+      return res.json({ budget });
+    } catch (error: any) {
+      console.error("Create budget error:", error);
+      return res.status(500).json({ error: "Failed to create budget: " + error.message });
+    }
+  });
+
+  // Update budget
+  app.patch("/api/budgets/:id", async (req, res) => {
+    try {
+      console.log("Updating budget:", req.params.id, "with data:", req.body);
+      const budget = await storage.updateBudget(parseInt(req.params.id), req.body);
+      console.log("Budget updated:", budget);
+      return res.json({ budget });
+    } catch (error: any) {
+      console.error("Update budget error:", error);
+      return res.status(500).json({ error: "Failed to update budget: " + error.message });
+    }
+  });
+
+  // Delete budget
+  app.delete("/api/budgets/:id", async (req, res) => {
+    try {
+      console.log("Deleting budget:", req.params.id);
+      await storage.deleteBudget(parseInt(req.params.id));
+      console.log("Budget deleted successfully");
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete budget error:", error);
+      return res.status(500).json({ error: "Failed to delete budget: " + error.message });
     }
   });
 

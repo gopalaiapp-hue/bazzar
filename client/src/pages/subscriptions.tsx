@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
 import { Plus, Trash2, Bell, BellOff, CreditCard, Calendar, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Subscription {
     id: number;
@@ -57,10 +58,29 @@ export default function Subscriptions() {
         queryKey: ["subscriptions", user?.id],
         queryFn: async () => {
             if (!user?.id) return [];
-            const res = await fetch(`/api/subscriptions/${user.id}`);
-            if (!res.ok) throw new Error("Failed to fetch");
-            const data = await res.json();
-            return data.subscriptions || [];
+
+            const { data, error } = await supabase
+                .from('subscriptions')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+
+            if (error) throw new Error(error.message || "Failed to fetch subscriptions");
+
+            // Convert snake_case to camelCase
+            return (data || []).map((sub: any) => ({
+                id: sub.id,
+                userId: sub.user_id,
+                name: sub.name,
+                amount: sub.amount,
+                dueDate: sub.due_date,
+                category: sub.category,
+                icon: sub.icon,
+                isActive: sub.is_active,
+                reminderDays: sub.reminder_days,
+                notifyOnRenewal: sub.notify_on_renewal,
+                createdAt: sub.created_at
+            }));
         },
         enabled: !!user?.id
     });
@@ -68,13 +88,27 @@ export default function Subscriptions() {
     // Create mutation
     const createMutation = useMutation({
         mutationFn: async (sub: Partial<Subscription>) => {
-            const res = await fetch("/api/subscriptions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(sub),
-            });
-            if (!res.ok) throw new Error("Failed to create");
-            return res.json();
+            if (!user?.id) throw new Error("User not authenticated");
+
+            // Convert camelCase to snake_case for Supabase
+            const { data, error } = await supabase
+                .from('subscriptions')
+                .insert({
+                    user_id: sub.userId,
+                    name: sub.name,
+                    amount: sub.amount,
+                    due_date: sub.dueDate,
+                    category: sub.category,
+                    icon: sub.icon,
+                    is_active: sub.isActive,
+                    reminder_days: sub.reminderDays,
+                    notify_on_renewal: sub.notifyOnRenewal
+                })
+                .select()
+                .single();
+
+            if (error) throw new Error(error.message || "Failed to create subscription");
+            return data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -82,21 +116,30 @@ export default function Subscriptions() {
             resetForm();
             toast({ title: "Added!", description: "Subscription added successfully" });
         },
-        onError: () => {
-            toast({ title: "Error", description: "Failed to add subscription", variant: "destructive" });
+        onError: (error: any) => {
+            console.error("Subscription creation failed:", error);
+            const errorMessage = error?.message || "Failed to add subscription. Please try again.";
+            toast({ title: "Error", description: errorMessage, variant: "destructive" });
         }
     });
 
     // Update mutation
     const updateMutation = useMutation({
         mutationFn: async ({ id, data }: { id: number; data: Partial<Subscription> }) => {
-            const res = await fetch(`/api/subscriptions/${id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-            if (!res.ok) throw new Error("Failed to update");
-            return res.json();
+            // Convert camelCase to snake_case for Supabase
+            const updateData: any = {};
+            if (data.isActive !== undefined) updateData.is_active = data.isActive;
+            if (data.notifyOnRenewal !== undefined) updateData.notify_on_renewal = data.notifyOnRenewal;
+            if (data.amount !== undefined) updateData.amount = data.amount;
+            if (data.dueDate !== undefined) updateData.due_date = data.dueDate;
+            if (data.reminderDays !== undefined) updateData.reminder_days = data.reminderDays;
+
+            const { error } = await supabase
+                .from('subscriptions')
+                .update(updateData)
+                .eq('id', id);
+
+            if (error) throw new Error(error.message || "Failed to update subscription");
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -106,9 +149,12 @@ export default function Subscriptions() {
     // Delete mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: number) => {
-            const res = await fetch(`/api/subscriptions/${id}`, { method: "DELETE" });
-            if (!res.ok) throw new Error("Failed to delete");
-            return res.json();
+            const { error } = await supabase
+                .from('subscriptions')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw new Error(error.message || "Failed to delete subscription");
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -126,13 +172,32 @@ export default function Subscriptions() {
     };
 
     const handleAddSubscription = () => {
-        if (!user?.id) return;
-
-        const name = selectedTemplate?.name === "Other" ? customName : selectedTemplate?.name;
-        if (!name || !amount) {
-            toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+        if (!user?.id) {
+            toast({ title: "Error", description: "Please log in to add subscriptions", variant: "destructive" });
             return;
         }
+
+        const name = selectedTemplate?.name === "Other" ? customName.trim() : selectedTemplate?.name;
+
+        // Validate required fields
+        if (!name) {
+            toast({ title: "Missing Name", description: "Please select a subscription or enter a custom name", variant: "destructive" });
+            return;
+        }
+
+        if (!amount || parseInt(amount) <= 0) {
+            toast({ title: "Invalid Amount", description: "Please enter a valid monthly amount", variant: "destructive" });
+            return;
+        }
+
+        // Log for debugging
+        console.log("Creating subscription:", {
+            userId: user.id,
+            name,
+            amount: parseInt(amount),
+            dueDate: dueDate ? parseInt(dueDate) : undefined,
+            category: selectedTemplate?.category || "other",
+        });
 
         createMutation.mutate({
             userId: user.id,
@@ -142,7 +207,7 @@ export default function Subscriptions() {
             category: selectedTemplate?.category || "other",
             icon: selectedTemplate?.icon || "📺",
             isActive: true,
-            reminderDays: parseInt(reminderDays),
+            reminderDays: parseInt(reminderDays) || 3,
             notifyOnRenewal,
         });
     };
@@ -159,6 +224,18 @@ export default function Subscriptions() {
     const activeSubscriptions = subscriptions.filter(s => s.isActive);
     const monthlyTotal = activeSubscriptions.reduce((sum, s) => sum + s.amount, 0);
     const yearlyTotal = monthlyTotal * 12;
+
+    const { isLoading: isUserLoading } = useUser();
+
+    if (isUserLoading) {
+        return (
+            <MobileShell>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                </div>
+            </MobileShell>
+        );
+    }
 
     if (!user) return null;
 

@@ -6,16 +6,19 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery } from "@tanstack/react-query";
 import type { TaxData } from "@shared/schema";
 import { useLocation } from "wouter";
+import { useUser } from "@/context/UserContext";
+import { apiUrl } from "@/lib/api-config";
 
 export default function Tax() {
   const [, setLocation] = useLocation();
-  const userId = localStorage.getItem("userId");
+  const { user, isLoading: isUserLoading } = useUser();
+  const userId = user?.id;
 
   const { data: taxData, isLoading } = useQuery<TaxData>({
     queryKey: ["tax", userId],
     queryFn: async () => {
       if (!userId) return null;
-      const res = await fetch(`/api/tax/${userId}`);
+      const res = await fetch(apiUrl(`/api/tax/${userId}`));
       if (!res.ok) throw new Error("Failed to fetch tax data");
       const data = await res.json();
       return data.taxData;
@@ -23,12 +26,24 @@ export default function Tax() {
     enabled: !!userId,
   });
 
-  if (!userId) {
+  // AUTH GUARD: Show loading while checking user
+  if (isUserLoading) {
+    return (
+      <MobileShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </MobileShell>
+    );
+  }
+
+  // AUTH GUARD: Redirect if not logged in
+  if (!user || !userId) {
     return (
       <MobileShell>
         <div className="p-6 text-center space-y-4">
-          <p className="text-muted-foreground">Please complete onboarding first.</p>
-          <Button onClick={() => setLocation("/")}>Go to Onboarding</Button>
+          <p className="text-muted-foreground">Please log in to view tax information.</p>
+          <Button onClick={() => setLocation("/")}>Go to Login</Button>
         </div>
       </MobileShell>
     );
