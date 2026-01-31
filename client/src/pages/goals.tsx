@@ -17,6 +17,7 @@ import { AddFundsSheet } from "@/components/ui/AddFundsSheet";
 import { GoalDetailSheet } from "@/components/ui/GoalDetailSheet";
 import { ContributionHistorySheet } from "@/components/ui/ContributionHistorySheet";
 import { cn } from "@/lib/utils";
+import { GoalCardSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 export default function Goals() {
   const [, setLocation] = useLocation();
@@ -278,12 +279,21 @@ export default function Goals() {
     deleteGoalMutation.mutate(goalId);
   };
 
-  // Show loading spinner while user data is being fetched
+  // Show loading skeleton while user data is being fetched
   if (isUserLoading) {
     return (
       <MobileShell>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="p-6 space-y-6">
+          <div className="flex justify-between items-end">
+            <div>
+              <Skeleton className="h-7 w-32 mb-2" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <Skeleton className="h-9 w-24 rounded-lg" />
+          </div>
+          <GoalCardSkeleton />
+          <GoalCardSkeleton />
+          <GoalCardSkeleton />
         </div>
       </MobileShell>
     );
@@ -318,8 +328,10 @@ export default function Goals() {
         </div>
 
         {isGoalsLoading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div className="space-y-4">
+            <GoalCardSkeleton />
+            <GoalCardSkeleton />
+            <GoalCardSkeleton />
           </div>
         ) : (
           <>

@@ -454,6 +454,26 @@ export async function registerRoutes(
     return transformed;
   }
 
+  // Delete User - Cascading delete
+  app.delete("/api/users/:id", async (req, res) => {
+    try {
+      console.log(`Request to delete user: ${req.params.id}`);
+
+      // 1. Delete from Local DB (Cascading)
+      await storage.deleteUser(req.params.id);
+      console.log(`Local data deleted for user: ${req.params.id}`);
+
+      // 2. Attempt Supabase Delete (Standard users can't delete themselves, usually needs Admin key)
+      // We will only log this attempt. The client should sign out which invalidates the session.
+      // If you have a mechanics for Edge Function or Service Role delete, add it here.
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
+      return res.status(500).json({ error: "Failed to delete user: " + error.message });
+    }
+  });
+
   // Update User - Supabase is the PRIMARY source of truth
   app.patch("/api/users/:id", async (req, res) => {
     try {
@@ -731,6 +751,24 @@ export async function registerRoutes(
   });
 
   // ========== POCKETS ROUTES ==========
+
+  // Get single pocket detail - MUST come before /api/pockets/:userId to avoid conflicts
+  app.get("/api/pockets/detail/:id", async (req, res) => {
+    try {
+      const pocketId = parseInt(req.params.id);
+      console.log("Fetching pocket detail for ID:", pocketId);
+      const pocket = await storage.getPocket(pocketId);
+      if (!pocket) {
+        console.log("Pocket not found for ID:", pocketId);
+        return res.status(404).json({ error: "Pocket not found" });
+      }
+      console.log("Pocket found:", pocket.name);
+      return res.json(pocket);
+    } catch (error: any) {
+      console.error("Pocket detail error:", error);
+      return res.status(500).json({ error: "Failed to fetch pocket: " + error.message });
+    }
+  });
 
   app.get("/api/pockets/:userId", async (req, res) => {
     try {
@@ -1115,17 +1153,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get single pocket
-  app.get("/api/pockets/detail/:id", async (req, res) => {
-    try {
-      const pocketId = parseInt(req.params.id);
-      const pocket = await storage.getPocket(pocketId);
-      if (!pocket) return res.status(404).json({ error: "Pocket not found" });
-      return res.json(pocket);
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to fetch pocket" });
-    }
-  });
 
   // ========== SUBSCRIPTIONS ROUTES ==========
 

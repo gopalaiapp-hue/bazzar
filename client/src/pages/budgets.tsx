@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabaseClient";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // Helper to map icon names to components if needed, or just use emojis
 const getIcon = (iconName: string) => {
@@ -234,26 +235,83 @@ export default function Budgets() {
           {isBudgetsLoading ? (
             <div className="text-center py-8">Loading budgets...</div>
           ) : budgets.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">No budgets set.</div>
+            <EmptyState
+              type="budgets"
+              title="No Budgets Set"
+              description="Create category budgets to control your spending and stay on track"
+              action={
+                <Button onClick={handleAddBudget} className="bg-gradient-to-r from-orange-500 to-amber-500">
+                  <Plus className="w-4 h-4 mr-2" /> Create First Budget
+                </Button>
+              }
+            />
           ) : (
             budgets.map((b: any) => {
               const percentage = (b.spent / b.limit) * 100;
               const isOver = percentage > 100;
               const isWarning = percentage > 80 && !isOver;
+              const isGood = percentage <= 80;
+              const remaining = Math.max(0, b.limit - b.spent);
               const Icon = getIcon(b.icon);
 
               return (
-                <div key={b.id} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                <div key={b.id} className={cn(
+                  "bg-white p-4 rounded-2xl border shadow-sm transition-all",
+                  isOver ? "border-red-200 bg-red-50/30" : isWarning ? "border-orange-200 bg-orange-50/20" : "border-gray-100"
+                )}>
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-3">
-                      <div className={cn("h-10 w-10 rounded-full flex items-center justify-center", b.color || "bg-blue-100 text-blue-600")}>
-                        <Icon className="w-5 h-5" />
+                      {/* Circular Progress Indicator */}
+                      <div className="relative">
+                        <svg className="w-14 h-14 -rotate-90">
+                          <circle
+                            cx="28"
+                            cy="28"
+                            r="24"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                            className="text-gray-200"
+                          />
+                          <circle
+                            cx="28"
+                            cy="28"
+                            r="24"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                            strokeDasharray={`${Math.min(percentage, 100) * 1.51} 151`}
+                            strokeLinecap="round"
+                            className={cn(
+                              "transition-all duration-500",
+                              isOver ? "text-red-500" : isWarning ? "text-orange-500" : "text-green-500"
+                            )}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className={cn(
+                            "text-xs font-bold",
+                            isOver ? "text-red-600" : isWarning ? "text-orange-600" : "text-green-600"
+                          )}>
+                            {Math.min(Math.round(percentage), 999)}%
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <h3 className="font-bold text-sm">{b.category}</h3>
                         <p className="text-xs text-muted-foreground">
                           Limit: ₹{b.limit.toLocaleString()}
                         </p>
+                        {isOver && (
+                          <p className="text-xs text-red-600 font-semibold flex items-center gap-1 mt-0.5">
+                            <ShieldAlert className="w-3 h-3" /> Over by ₹{(b.spent - b.limit).toLocaleString()}
+                          </p>
+                        )}
+                        {isGood && (
+                          <p className="text-xs text-green-600 font-medium mt-0.5">
+                            ₹{remaining.toLocaleString()} left
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -275,18 +333,27 @@ export default function Budgets() {
                     </div>
                   </div>
 
+                  {/* Linear Progress Bar */}
                   <div className="space-y-1.5">
-                    <div className="flex justify-between text-[10px] font-medium">
-                      <span className={cn(isOver ? "text-red-600" : isWarning ? "text-orange-600" : "text-green-600")}>
-                        {Math.round(percentage)}% used
-                      </span>
-                      {isOver && <span className="text-red-600 flex items-center"><ShieldAlert className="w-3 h-3 mr-1" /> Blocked</span>}
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-700 ease-out",
+                          isOver
+                            ? "bg-gradient-to-r from-red-400 to-red-600"
+                            : isWarning
+                              ? "bg-gradient-to-r from-orange-400 to-orange-500"
+                              : "bg-gradient-to-r from-green-400 to-green-500"
+                        )}
+                        style={{ width: `${Math.min(percentage, 100)}%` }}
+                      />
                     </div>
-                    <Progress
-                      value={Math.min(percentage, 100)}
-                      className={cn("h-2", isOver ? "bg-red-100" : "bg-gray-100")}
-                      indicatorClassName={isOver ? "bg-red-600" : isWarning ? "bg-orange-500" : "bg-green-500"}
-                    />
+                    {isOver && (
+                      <div className="flex items-center justify-center gap-2 py-2 bg-red-100 rounded-lg mt-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600" />
+                        <span className="text-xs font-bold text-red-700">Budget Exceeded!</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

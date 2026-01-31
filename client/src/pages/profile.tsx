@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AccountTypeDetailsSheet } from "@/components/ui/account-type-details-sheet";
 import { ChangePasswordSheet } from "@/components/ui/ChangePasswordSheet";
+import { DestructiveActionDialog } from "@/components/ui/destructive-action-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useUser } from "@/context/UserContext";
@@ -1484,42 +1485,9 @@ export default function Profile() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Separator />
-              <Dialog>
-                <DialogTrigger asChild>
-                  <div className="flex items-center justify-between p-4 hover:bg-red-50 active:bg-red-100 transition-colors cursor-pointer">
-                    <div className="flex items-center gap-4">
-                      <div className="h-10 w-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
-                        <Trash2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-red-600">{t('profile.deleteAccount')}</p>
-                        <p className="text-xs text-red-400">{t('profile.permanentlyRemove')}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-red-300" />
-                  </div>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="text-red-600">{t('profile.deleteAccountPermanently')}</DialogTitle>
-                    <DialogDescription>
-                      {t('profile.deleteWarning')}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>{t('profile.typeDelete')}</Label>
-                      <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder="DELETE" />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="destructive" onClick={handleDeleteAccount} disabled={deleteConfirm !== "DELETE"}>Delete Permanently</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
             </div>
           </section>
+
 
           {/* Support & Logout */}
           <section className="space-y-3">
@@ -1564,21 +1532,75 @@ export default function Profile() {
               </button>
             </div>
 
+            {/* Danger Zone */}
+            <section className="space-y-3 pt-6">
+              <h3 className="text-xs font-bold text-red-600 uppercase tracking-widest px-2">Danger Zone</h3>
+              <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden">
+                <DestructiveActionDialog
+                  title="Delete Account"
+                  description="This action cannot be undone. All your data including transactions, pockets, and goals will be permanently deleted."
+                  confirmText="Delete My Account"
+                  onConfirm={async () => {
+                    if (!user?.id) return;
+                    try {
+                      const res = await fetch(apiUrl(`/api/users/${user.id}`), {
+                        method: "DELETE",
+                        headers: {
+                          // Pass auth token for potential Supabase/Admin checks
+                          "Authorization": session?.access_token ? `Bearer ${session.access_token}` : ""
+                        }
+                      });
+
+                      if (!res.ok) {
+                        throw new Error("Failed to delete account");
+                      }
+
+                      toast({ title: "Account Deleted", description: "Your account has been permanently deleted." });
+                      // Add a small delay for user to read toast before redirecting
+                      setTimeout(() => handleLogout(), 1500);
+                    } catch (error) {
+                      console.error("Delete error:", error);
+                      toast({
+                        variant: "destructive",
+                        title: "Error",
+                        description: "Failed to delete account. Please contact support."
+                      });
+                    }
+                  }}
+                  trigger={
+                    <button className="w-full flex items-center justify-between p-4 hover:bg-red-50 active:bg-red-100 transition-colors cursor-pointer group">
+                      <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center group-hover:bg-red-100">
+                          <Trash2 className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-semibold text-red-600">Delete Account</p>
+                          <p className="text-xs text-red-400">Permanently remove all data</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-red-200" />
+                    </button>
+                  }
+                />
+              </div>
+            </section>
+
             <div className="pt-4 text-center pb-20">
               <p className="text-[10px] text-gray-400 mt-2">SahKosh v1.0.0 (Beta)</p>
               <p className="text-[10px] text-gray-300">Made with ❤️ in India</p>
             </div>
           </section>
         </div>
-      </div>
+      </div >
 
       {/* Change Password Sheet */}
-      <ChangePasswordSheet
+      < ChangePasswordSheet
         isOpen={changePasswordOpen}
-        onClose={() => setChangePasswordOpen(false)}
+        onClose={() => setChangePasswordOpen(false)
+        }
         userEmail={user?.email || ""}
       />
-    </MobileShell>
+    </MobileShell >
   );
 }
 

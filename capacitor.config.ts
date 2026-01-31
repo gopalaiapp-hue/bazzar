@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-    appId: 'com.bazaarbudget.app',
-    appName: 'BazaarBudget',
+    appId: 'com.gopalai.sahkosh',
+    appName: 'SahKosh',
     webDir: 'dist/public',
     server: {
         androidScheme: 'https'

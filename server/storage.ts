@@ -13,6 +13,7 @@ export interface IStorage {
   hashPassword(password: string): Promise<string>;
   verifyPassword(password: string, hash: string): Promise<boolean>;
   getLinkedMembers(adminId: string): Promise<schema.User[]>;
+  deleteUser(id: string): Promise<void>;
 
   // Invite Codes
   createInviteCode(code: schema.InsertInviteCode): Promise<schema.InviteCode>;
@@ -34,6 +35,7 @@ export interface IStorage {
 
   // Pockets
   getUserPockets(userId: string): Promise<schema.Pocket[]>;
+  getPocket(id: number): Promise<schema.Pocket | undefined>;
   createPocket(pocket: schema.InsertPocket): Promise<schema.Pocket>;
   updatePocket(id: number, data: Partial<schema.InsertPocket>): Promise<schema.Pocket>;
 
@@ -123,6 +125,29 @@ export class DatabaseStorage implements IStorage {
 
   async getLinkedMembers(adminId: string): Promise<schema.User[]> {
     return await db.select().from(schema.users).where(eq(schema.users.linkedAdminId, adminId));
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    // 1. Transactions & Transfers
+    await db.delete(schema.transactions).where(eq(schema.transactions.userId, id));
+    await db.delete(schema.pocketTransfers).where(eq(schema.pocketTransfers.userId, id));
+
+    // 2. Core Financial Data
+    await db.delete(schema.pockets).where(eq(schema.pockets.userId, id));
+    await db.delete(schema.budgets).where(eq(schema.budgets.userId, id));
+    await db.delete(schema.goals).where(eq(schema.goals.userId, id));
+    await db.delete(schema.lenaDena).where(eq(schema.lenaDena.userId, id));
+    await db.delete(schema.subscriptions).where(eq(schema.subscriptions.userId, id));
+    await db.delete(schema.taxData).where(eq(schema.taxData.userId, id));
+
+    // 3. Family & Auth
+    await db.delete(schema.familyMembers).where(eq(schema.familyMembers.userId, id));
+    await db.delete(schema.joinRequests).where(eq(schema.joinRequests.requesterId, id));
+    await db.delete(schema.inviteCodes).where(eq(schema.inviteCodes.creatorId, id));
+    await db.delete(schema.otps).where(eq(schema.otps.phone, (await this.getUser(id))?.phone || ''));
+
+    // 4. Finally delete user
+    await db.delete(schema.users).where(eq(schema.users.id, id));
   }
 
   // Invite Codes

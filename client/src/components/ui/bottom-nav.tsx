@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Home, Users, User, Heart, PieChart, ArrowRightLeft } from "lucide-react";
+import { Home, User, Heart, PieChart, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/context/UserContext";
 import { useTranslation } from "react-i18next";
@@ -13,21 +13,16 @@ export function BottomNav() {
   const baseItems = [
     { icon: Home, label: t('navigation.home'), href: "/home" },
     { icon: PieChart, label: t('navigation.budget'), href: "/budgets" },
-    { icon: ArrowRightLeft, label: t('navigation.lenaDena'), href: "/lena-dena" }, // Changed href to match route
+    { icon: ArrowRightLeft, label: t('navigation.lenaDena'), href: "/lena-dena" },
     { icon: User, label: t('navigation.profile'), href: "/profile" },
   ];
 
   let navItems = [...baseItems];
 
-  // mai_sirf: No We, No Family
-  // couple: Show We only
-  // joint: Show both We and Family
+  // mai_sirf: No We
+  // couple/joint: Show We (combines couple + family features)
   if (familyType === 'couple' || familyType === 'joint') {
     navItems.splice(2, 0, { icon: Heart, label: t('navigation.we'), href: "/couple" });
-  }
-
-  if (familyType === 'joint') {
-    navItems.push({ icon: Users, label: t('navigation.family'), href: "/family" });
   }
 
   if (isLoading) {
@@ -59,7 +54,7 @@ export function BottomNav() {
                     strokeWidth={isActive ? 2.5 : 2}
                     className={cn(
                       "transition-all duration-200",
-                      isActive && "text-primary animate-pulse"
+                      isActive && "text-primary"
                     )}
                   />
                   {item.label === "We" && <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />}
@@ -76,3 +71,4 @@ export function BottomNav() {
     </div>
   );
 }
+

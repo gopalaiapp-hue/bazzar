@@ -3,9 +3,14 @@ import { useTranslation } from "react-i18next";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { PocketCard } from "@/components/ui/pocket-card";
 import { ExpenseDetailSheet } from "@/components/ui/ExpenseDetailSheet";
-import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X, CreditCard, Mic } from "lucide-react";
+import { Bell, Search, Filter, Plus, ArrowUpRight, ArrowDownLeft, Edit2, Trash2, Check, X, CreditCard, Mic, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import SplashScreen from "@/components/SplashScreen";
+import { PocketCardSkeleton, TransactionSkeleton } from "@/components/ui/skeleton";
+import { SwipeToDelete } from "@/components/ui/swipeable-item";
+import { SpendingChart, IncomeExpenseComparison } from "@/components/ui/spending-chart";
+import { EmptyState, EmptyStateInline } from "@/components/ui/empty-state";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
@@ -75,7 +80,54 @@ const PAYMENT_METHODS = ["Cash", "UPI", "Card", "Bank Transfer", "Wallet"];
 export default function Home() {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editingId, setEditingId] = useState<number | string | null>(null);
+  const [formData, setFormData] = useState({
+    type: "debit",
+    amount: "",
+    merchant: "",
+    category: "Groceries",
+    paymentMethod: "Cash",
+    paidBy: "You",
+    notes: "",
+    isBorrowed: false,
+    lenderName: "",
+    lenderPhone: "",
+    isShared: false,
+    receiptUrl: "",
+    hasSplit: false,
+    splitAmount1: "",
+    splitAmount2: "",
+    splitMethod1: "Cash",
+    splitMethod2: "UPI"
+  });
+
+  // UI State
+  const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
+  const [addPocketOpen, setAddPocketOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
+  // Pocket Form State
+  const [newPocketName, setNewPocketName] = useState("");
+  const [newPocketAmount, setNewPocketAmount] = useState("");
+  const [newPocketTarget, setNewPocketTarget] = useState("");
+  const [newPocketDeadline, setNewPocketDeadline] = useState("");
+  const [newPocketIcon, setNewPocketIcon] = useState("💰");
+  const [newPocketType, setNewPocketType] = useState("cash");
+
+  // Transfer State
+  const [transferFrom, setTransferFrom] = useState<string | number>("");
+  const [transferTo, setTransferTo] = useState<string | number>("");
+  const [transferAmount, setTransferAmount] = useState("");
+
   const queryClient = useQueryClient();
   const { user, isLoading } = useUser();
   const userId = user?.id;
@@ -89,11 +141,26 @@ export default function Home() {
     }
   }, [userId, queryClient]));
 
-  // Show loading screen while user data is being fetched
-  // AuthGate handles all auth routing - this page should only render when authenticated
-  if (isLoading || !user) {
-    return <SplashScreen />;
-  }
+  // Handle Quick Add actions from bottom nav FAB
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+
+    if (action === 'expense') {
+      setFormData(prev => ({ ...prev, type: 'debit' }));
+      setOpenDialog(true);
+      // Clean up URL
+      window.history.replaceState({}, '', '/home');
+    } else if (action === 'income') {
+      setFormData(prev => ({ ...prev, type: 'credit' }));
+      setIncomeDialogOpen(true);
+      window.history.replaceState({}, '', '/home');
+    } else if (action === 'pocket') {
+      setAddPocketOpen(true);
+      window.history.replaceState({}, '', '/home');
+    }
+  }, [location]);
+
 
   const { data: pockets = [], isLoading: pocketsLoading, isError: pocketsError, error: pocketsErrorDetails } = useQuery<Pocket[]>({
     queryKey: ["pockets", userId],
@@ -162,7 +229,6 @@ export default function Home() {
       }
     },
     enabled: !!userId,
-    enabled: !!userId,
     retry: 2
   });
 
@@ -180,6 +246,24 @@ export default function Home() {
   });
 
   // Calculate Daily Limit Logic
+  // Transactions Query (Moved up to be available for daily stats)
+  const { data: transactions = [], isLoading: isTransactionsLoading } = useQuery({
+    queryKey: ["transactions", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const res = await fetch(apiUrl(`/api/transactions/${userId}`));
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      const data = await res.json();
+      return (data.transactions || []).map((t: any) => ({
+        ...t,
+        date: t.date ? new Date(t.date).toLocaleDateString("en-IN") : new Date().toLocaleDateString("en-IN"),
+        createdAt: t.createdAt ? new Date(t.createdAt).getTime() : Date.now(),
+        editDeadline: t.createdAt ? new Date(t.createdAt).getTime() + 3600000 : Date.now() + 3600000
+      }));
+    },
+    enabled: !!userId,
+  });
+
   const calculateDailyStats = () => {
     const today = new Date();
     const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -228,24 +312,6 @@ export default function Home() {
     }
   }, [pocketsError, pocketsErrorDetails, toast]);
 
-
-  // Transactions Query
-  const { data: transactions = [], isLoading: isTransactionsLoading } = useQuery({
-    queryKey: ["transactions", userId],
-    queryFn: async () => {
-      if (!userId) return [];
-      const res = await fetch(apiUrl(`/api/transactions/${userId}`));
-      if (!res.ok) throw new Error("Failed to fetch transactions");
-      const data = await res.json();
-      return (data.transactions || []).map((t: any) => ({
-        ...t,
-        date: t.date ? new Date(t.date).toLocaleDateString("en-IN") : new Date().toLocaleDateString("en-IN"),
-        createdAt: t.createdAt ? new Date(t.createdAt).getTime() : Date.now(),
-        editDeadline: t.createdAt ? new Date(t.createdAt).getTime() + 3600000 : Date.now() + 3600000
-      }));
-    },
-    enabled: !!userId,
-  });
 
   // Mutations
   const addTxMutation = useMutation({
@@ -403,6 +469,19 @@ export default function Home() {
 
   const todayStats = getTodayStats();
 
+  // Merge default categories with budget categories from database
+  const allCategories = React.useMemo(() => {
+    const defaultSet = new Set(CATEGORIES.map(c => c.label));
+    const budgetCategories = budgets
+      .filter((b: any) => !defaultSet.has(b.category))
+      .map((b: any) => ({
+        label: b.category,
+        icon: b.icon || "📊",
+        color: b.color || "bg-gray-100"
+      }));
+    return [...CATEGORIES, ...budgetCategories];
+  }, [budgets]);
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -416,6 +495,11 @@ export default function Home() {
   };
 
   const handleSaveTransaction = () => {
+    if (!userId) {
+      toast({ title: "Not logged in", description: "Please sign in to add transactions", variant: "destructive" });
+      return;
+    }
+
     if (!formData.amount || !formData.merchant) {
       toast({ title: "Required fields missing", description: "Enter amount and merchant name", variant: "destructive" });
       return;
@@ -443,7 +527,7 @@ export default function Home() {
       amount: parseInt(formData.amount),
       merchant: formData.merchant,
       category: formData.category,
-      icon: CATEGORIES.find(c => c.label === formData.category)?.icon || (customCategories.includes(formData.category) ? "🏷️" : "💳"),
+      icon: allCategories.find(c => c.label === formData.category)?.icon || (customCategories.includes(formData.category) ? "🏷️" : "💳"),
       // API expects timestamp or ISO date string, but for simplicity let's use the current date handling in backend
       // date: new Date().toISOString(), 
       paymentMethod: formData.paymentMethod,
@@ -508,15 +592,13 @@ export default function Home() {
   };
 
   const handleUpdatePrice = (id: string, newAmount: number) => {
-    const tx = transactions.find(t => t.id === id);
+    const tx = transactions.find((t: any) => t.id === id);
     if (tx && !canEditTransaction(tx)) {
       toast({ title: "Cannot Edit", description: "You can only edit transactions within 1 hour", variant: "destructive" });
       return;
     }
-    const updated = transactions.map(t => t.id === id ? { ...t, amount: newAmount } : t);
-    setTransactions(updated);
-    localStorage.setItem("bazaar_transactions", JSON.stringify(updated));
-    toast({ title: "Price Updated" });
+    // Updates are handled through mutation, not local state
+    updateTxMutation.mutate({ id, data: { amount: newAmount } });
   };
 
   const handleAddPocket = async () => {
@@ -604,8 +686,8 @@ export default function Home() {
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ["pockets"] });
         setShowTransferDialog(false);
-        setTransferFrom(null);
-        setTransferTo(null);
+        setTransferFrom("");
+        setTransferTo("");
         setTransferAmount("");
         toast({ title: "Transfer Complete" });
       } else {
@@ -661,9 +743,24 @@ export default function Home() {
                   )}
                 </div>
               </div>
-              <Button variant="ghost" size="icon" className="rounded-full bg-gray-50" onClick={() => toast({ title: t('home.notifications'), description: t('home.noNewNotifications') })}>
-                <Bell className="w-5 h-5 text-gray-600" />
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full bg-gray-50"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: ["pockets"] });
+                    queryClient.invalidateQueries({ queryKey: ["transactions"] });
+                    queryClient.invalidateQueries({ queryKey: ["goals"] });
+                    toast({ title: "Refreshed! ✨", description: "All data updated" });
+                  }}
+                >
+                  <RefreshCw className="w-5 h-5 text-gray-600" />
+                </Button>
+                <Button variant="ghost" size="icon" className="rounded-full bg-gray-50" onClick={() => toast({ title: t('home.notifications'), description: t('home.noNewNotifications') })}>
+                  <Bell className="w-5 h-5 text-gray-600" />
+                </Button>
+              </div>
             </div>
             <div className="flex gap-2 pb-2">
               {/* Daily Spending Split Meter */}
@@ -714,32 +811,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Voice Input FAB - Only shows if supported */}
-            {voiceSupported && (
-              <Button
-                onClick={() => {
-                  console.log("🎤 Microphone button clicked, voiceSupported:", voiceSupported);
-                  if (isListening) {
-                    console.log("⏹️ Stopping voice recognition");
-                    stopListening();
-                  } else {
-                    console.log("▶️ Starting voice recognition");
-                    toast({
-                      title: "Listening... 🎤",
-                      description: "Speak now to add an expense or income"
-                    });
-                    startListening();
-                  }
-                }}
-                className={cn(
-                  "fixed bottom-24 left-6 z-50 rounded-full h-14 w-14 shadow-lg transition-all duration-300",
-                  isListening ? "bg-red-500 hover:bg-red-600 animate-pulse scale-110" : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:scale-105"
-                )}
-              >
-                <Mic className={cn("w-6 h-6 text-white", isListening && "animate-bounce")} />
-              </Button>
-            )}
-
             {/* Add Expense/Income Buttons */}
             <div className="flex gap-3 mt-4">
               <Dialog open={openDialog} onOpenChange={setOpenDialog}>
@@ -788,7 +859,7 @@ export default function Home() {
                       )}
 
                       <div className="grid grid-cols-3 gap-2">
-                        {CATEGORIES.map(cat => (
+                        {allCategories.map(cat => (
                           <button
                             key={cat.label}
                             onClick={() => setFormData({ ...formData, category: cat.label })}
@@ -1009,8 +1080,10 @@ export default function Home() {
               </Button>
             </div>
             {pocketsLoading ? (
-              <div className="flex justify-center items-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <PocketCardSkeleton />
+                <PocketCardSkeleton />
+                <PocketCardSkeleton />
               </div>
             ) : pocketsError ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1327,6 +1400,41 @@ export default function Home() {
             </div>
           </section>
 
+          {/* Weekly Spending Chart */}
+          <section className="mb-6">
+            <SpendingChart
+              data={(() => {
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const today = new Date();
+                const weekData = [];
+
+                for (let i = 6; i >= 0; i--) {
+                  const date = new Date(today);
+                  date.setDate(date.getDate() - i);
+                  const dateStr = date.toLocaleDateString('en-IN');
+                  const dayExpense = transactions
+                    .filter((t: any) => t.date === dateStr && t.type === 'debit')
+                    .reduce((sum: number, t: any) => sum + t.amount, 0);
+
+                  weekData.push({
+                    day: days[date.getDay()],
+                    amount: dayExpense / 100,
+                    label: i === 0 ? 'Today' : days[date.getDay()]
+                  });
+                }
+                return weekData;
+              })()}
+            />
+          </section>
+
+          {/* Income vs Expense */}
+          <section className="mb-6">
+            <IncomeExpenseComparison
+              income={totalIncome}
+              expense={totalExpense}
+            />
+          </section>
+
           {/* Transaction History */}
           <section>
             <div className="flex justify-between items-center mb-4">
@@ -1407,46 +1515,71 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              {filteredTransactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>{transactions.length === 0 ? t('home.noTransactions') : t('home.noMatches')}</p>
+              {isTransactionsLoading ? (
+                <div className="space-y-3">
+                  <TransactionSkeleton />
+                  <TransactionSkeleton />
+                  <TransactionSkeleton />
+                  <TransactionSkeleton />
                 </div>
+              ) : filteredTransactions.length === 0 ? (
+                <EmptyState
+                  type="transactions"
+                  title={transactions.length === 0 ? "No Transactions Yet" : "No Matches Found"}
+                  description={transactions.length === 0
+                    ? "Add your first expense or income to start tracking"
+                    : "Try adjusting your search or filter"}
+                  action={
+                    transactions.length === 0 && (
+                      <Button
+                        onClick={() => setOpenDialog(true)}
+                        className="bg-gradient-to-r from-blue-500 to-indigo-500"
+                      >
+                        <Plus className="w-4 h-4 mr-2" /> Add First Transaction
+                      </Button>
+                    )
+                  }
+                />
               ) : (
                 filteredTransactions.map((tx, i) => {
                   const canEdit = canEditTransaction(tx);
                   const timeLeft = Math.max(0, Math.floor((tx.editDeadline - Date.now()) / 60000));
 
                   return (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
+                    <SwipeToDelete
                       key={tx.id}
-                      onClick={() => setSelectedTransaction(tx)}
-                      className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm cursor-pointer hover:border-primary/30 hover:shadow-md transition-all active:scale-[0.98]"
+                      onDelete={() => handleDeleteTransaction(tx.id)}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-1">
-                          <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-lg">{tx.icon}</div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-1">
-                              <h3 className="font-semibold text-sm">{tx.merchant}</h3>
-                              {tx.receiptUrl && (
-                                <span className="text-xs text-blue-500" title="Receipt attached">📎</span>
-                              )}
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        onClick={() => setSelectedTransaction(tx)}
+                        className="p-4 cursor-pointer hover:bg-gray-50 transition-all active:scale-[0.98]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-lg">{tx.icon}</div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-1">
+                                <h3 className="font-semibold text-sm">{tx.merchant}</h3>
+                                {tx.receiptUrl && (
+                                  <span className="text-xs text-blue-500" title="Receipt attached">📎</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{tx.category} • {tx.date} • {tx.paymentMethod}</p>
+                              {tx.isBorrowed && <p className="text-xs text-orange-600 font-medium mt-0.5">📌 Borrowed from {tx.lenderName}</p>}
                             </div>
-                            <p className="text-xs text-muted-foreground">{tx.category} • {tx.date} • {tx.paymentMethod}</p>
-                            {tx.isBorrowed && <p className="text-xs text-orange-600 font-medium mt-0.5">📌 Borrowed from {tx.lenderName}</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className={cn("font-bold text-base", tx.type === "credit" ? "text-green-600" : "text-foreground")}>
+                              {tx.type === "debit" ? "-" : "+"}{formatCurrency(tx.amount)}
+                            </p>
+                            {canEdit && <p className="text-[10px] text-blue-500 font-medium">⏱️ {timeLeft}m</p>}
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className={cn("font-bold text-base", tx.type === "credit" ? "text-green-600" : "text-foreground")}>
-                            {tx.type === "debit" ? "-" : "+"}{formatCurrency(tx.amount)}
-                          </p>
-                          {canEdit && <p className="text-[10px] text-blue-500 font-medium">⏱️ {timeLeft}m</p>}
-                        </div>
-                      </div>
-                    </motion.div>
+                      </motion.div>
+                    </SwipeToDelete>
                   );
                 })
               )}
