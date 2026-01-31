@@ -1,0 +1,120 @@
+name: Neon to Supabase Migration (Staging) [v2 FIXED]
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_backup:
+        description: 'Skip backup step (DANGER - staging only)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  migrate:
+    name: Migrate Database
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Export Neon Database
+        if: ${{ !github.event.inputs.skip_backup }}
+        shell: bash
+        env:
+          NEON_DB_URL: ${{ secrets.NEON_DB_URL }}
+        run: |
+          chmod +x scripts/export-from-neon.sh
+          ./scripts/export-from-neon.sh
+
+      - name: Upload Neon Backup
+        if: ${{ !github.event.inputs.skip_backup }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-backup-${{ github.sha }}
+          path: migration-backups/
+          retention-days: 90
+
+      - name: Import to Supabase
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          chmod +x scripts/import-to-supabase.sh
+          echo "==== DEBUG: Script Content ===="
+          cat scripts/import-to-supabase.sh
+          echo "==============================="
+          ls -R migration-backups/
+          # Auto-confirm the destructive action
+          echo "yes" | ./scripts/import-to-supabase.sh
+
+      - name: Verify Migration
+        env:
+          NEON_DB_URL: ${{ secrets.NEON_DB_URL }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          chmod +x scripts/verify-migration.sh
+          ./scripts/verify-migration.sh
+
+      - name: Generate Migration Report
+        if: always()
+        run: |
+          echo "## Migration Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f migration-backups/*/MIGRATION_REPORT.txt ]; then
+            echo "### Statistics" >> $GITHUB_STEP_SUMMARY
+            cat migration-backups/*/MIGRATION_REPORT.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Post-Migration Checklist
+        run: |
+          echo "## ✅ Post-Migration Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Test user login with existing credentials" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Verify API endpoints respond correctly" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Check RLS policies are working" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Update .env with Supabase credentials" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Rebuild mobile APK with new backend URL" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Monitor logs for 24-72 hours" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Keep Neon backup for rollback**" >> $GITHUB_STEP_SUMMARY
+
+  rollback:
+    name: Rollback to Neon
+    runs-on: ubuntu-latest
+    if: failure() && github.event.inputs.environment == 'staging'
+    needs: migrate
+    
+    steps:
+      - name: Download Neon Backup
+        uses: actions/download-artifact@v4
+        with:
+          name: neon-backup-${{ github.sha }}
+          path: migration-backups/
+
+      - name: Restore Neon Backup
+        env:
+          NEON_DB_URL: ${{ secrets.NEON_DB_URL }}
+        run: |
+          echo "🔙 Rollback initiated..."
+          pg_restore --verbose --clean --no-owner --no-acl \
+            --dbname="$NEON_DB_URL" \
+            migration-backups/*/neon_full_backup.dump

@@ -1,0 +1,42 @@
+### Missing-but-Should-Have Profile Section Features  
+(These are the ones 99% of Indian users will immediately look for in the Profile tab but will get annoyed if missing)
+
+| # | Feature (Profile → Settings)                          | Why Indian users will scream if it’s missing                                                                                 | Implementation difficulty | One-line test                                                                 |
+|---|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|---------------------------|--------------------------------------------------------------------------------|
+| 1 | Export all my data (Excel + PDF) in one tap           | Every uncle/aunty wants to forward yearly report to their CA or family WhatsApp group                                       | Low                       | Tap → downloads “Arjun_2025_Full_Report.xlsx” with all transactions + tax summary |
+| 2 | Delete my entire account + data forever               | Mandatory under DPDP Act 2023 + users switch phones often                                                                     | Medium                    | After confirmation → all rows deleted, logout + phone number reusable in 90 days |
+| 3 | Add / edit family member income manually              | Wife started freelance but app didn’t auto-detect → need manual override                                                     | Low                       | Edit → Priya income changes from ₹3L to ₹7L → tax & EMI calculator updates instantly |
+| 4 | Change daily notification time & quiet hours          | Default 8 PM disturbs dinner in 40% households; parents want 10 AM reminder                                                  | Low                       | Slider 6 AM – 11 PM + Do Not Disturb 10 PM – 7 AM                                      |
+| 5 | Hide balance / sensitive pockets                  | Don’t want parents/bhai to see “Personal Fun Money” pocket when phone is lying around                                         | Low                       | Toggle → pocket disappears from family view, still counts in totals                   |
+| 6 | Add nominee for family vault (in case of emergency)   | Indian middle-class paranoia — “kal ko kuch ho gaya toh paisa kahan jayega?”                                                  | Low                       | Add phone number + name → shows “Nominee: Priya (wife)”                               |
+| 7 | Backup & restore to Google Drive / iCloud             | Switch phone every 12–18 months — lose all data                                                                            | Medium                    | Restore on new phone → last transaction timestamp matches                             |
+| 8 | App lock — biometric / 4-digit PIN                    | Phone is shared with kids/spouse/parents — nobody should see full spending                                                 | Low                       | Open app after 2 min → asks fingerprint                                               |
+| 9 | Switch to “Lite mode” (big fonts + simple UI)         | For parents 50+ who get confused with current colourful UI                                                                  | Low                       | Toggle → fonts 24dp+, only 4 tabs, removes graphs                                             |
+|10| Manage linked banks / UPI IDs (remove old ones)       | Changed phone → old PhonePe UPI still showing duplicate transactions                                                         | Low                       | Remove SBI → future transactions from that account stop appearing                     |
+|11| Dark / Light / Auto theme + 5 accent colour choices   | Current apps feel “cheap” without colour options — especially Gen-Z couples                                                   | Low                       | Choose pink accent → all buttons & highlights turn pink                               |
+|12| Emergency “Share live location + last 5 transactions”| Women safety + parents want to check if child reached safely (already viral in Truecaller)                                   | Medium                    | Tap → WhatsApp message with Google Maps link + last spends                            |
+|13| Referral code + wallet (₹200 each side)               | Only way to grow fast in India — every user will spam 20–30 people if there is cash reward                                   | Medium                    | Friend uses code → both get ₹200 in “Rewards” pocket after 7 days of premium         |
+|14| Customer support in-app WhatsApp chat (Hindi + English)| Phone call support = dead in 2025. Users want instant reply on WhatsApp                                                      | Low                       | Tap → opens WhatsApp with pre-filled “BazaarBudget support”                           |
+
+### Recommended Profile Screen Layout (Add these in exact this order
+
+```
+Profile  
+└── ₹ 48,72,410  Total money across all pockets  
+└── Manage Accounts (Banks / UPI)  
+└── Family Members & Nominee  
+└── Notification Settings  
+└── App Lock & Hide Pockets  
+└── Theme & Language  
+└── Lite Mode for Parents  
+└── Backup & Export Data  
+└── Refer & Earn ₹200  
+└── Help & WhatsApp Support  
+└── Delete Account  
+└── Logout
+```
+
+Bhai, inko daal do — user retention 30–40% badh jayega first week mein hi.  
+Especially #1 (Export), #4 (Notification time), #8 (App lock), #9 (Lite mode) — yeh nahi honge toh Play Store reviews mein gaali padegi.
+
+Bol, kaunsa pehle implement karein?

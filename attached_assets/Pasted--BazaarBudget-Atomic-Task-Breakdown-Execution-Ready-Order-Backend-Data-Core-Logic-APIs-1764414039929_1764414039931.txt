@@ -1,0 +1,179 @@
+# BazaarBudget – Atomic Task Breakdown (Execution-Ready Order)  
+Backend → Data → Core Logic → APIs → Frontend → Polish  
+Total: ~780 atomic tasks → ~4.5 months with 18 engineers parallel
+
+### 1. Project Setup & Foundations
+1.1 Create monorepo (Turborepo + Next.js + NestJS + React Native)  
+   Files: `turbo.json`, `package.json`  
+   Test: `turbo run build` succeeds on empty repo
+
+1.2 Set up GitHub repo + branch protection + PR template  
+   Test: PR from feature branch can be opened
+
+1.3 Initialise PostgreSQL + Prisma schema (empty)  
+   Files: `prisma/schema.prisma`  
+   Test: `npx prisma db push` runs without error
+
+1.4 Set up CI/CD (GitHub Actions → Render / Railway / AWS)  
+   Test: Push to main triggers successful deploy
+
+1.5 Create ENV structure + Secrets management (Doppler / Vercel)  
+   Test: All services start locally with `.env.example`
+
+### 2. Auth & User Management
+2.1 Create users table + Prisma model  
+   Files: `prisma/schema.prisma`  
+   Test: `prisma studio` shows users table
+
+2.2 Firebase Auth phone-OTP backend (India)  
+   Files: `backend/src/auth/firebase.service.ts`  
+   Test: POST /auth/send-otp returns 200
+
+2.3 Verify OTP + issue JWT  
+   Test: POST /auth/verify returns access_token
+
+2.4 Middleware to protect all routes  
+   Test: Unauthenticated calls return 401
+
+### 3. Onboarding Flow Backend
+3.1 Create onboarding_step enum + field in users  
+   Test: Migration applied
+
+3.2 API: POST /onboarding/start → creates user record  
+   Test: Returns userId
+
+3.3 API: PATCH /onboarding → saves married?, parents?, income_sources[]  
+   Test: Data persisted correctly
+
+### 4. Account Aggregator & SMS Reading (Critical Path)
+4.1 Integrate Setu AA sandbox (100 bank support)  
+   Test: Consent flow returns mock data
+
+4.2 Create accounts table + type enum (bank/upi/cash/wallet)  
+   Test: Migration success
+
+4.3 Worker: Parse last 12 months SMS (Android permission via companion app later)  
+   Test: 100 real SMS → 95+ parsed correctly
+
+4.4 API: GET /accounts → returns all linked accounts with balance  
+   Test: Returns mock + real Setu data
+
+4.5 Create transactions table (amount, merchant, raw_sms, category, etc.)  
+   Test: Migration success
+
+4.6 Transaction ingestion queue (BullMQ + Redis)  
+   Test: 10k transactions processed < 30 sec
+
+### 5. Money Pockets Engine (Core IP)
+5.1 Create pockets table (user_id, type, name, balance, is_virtual)  
+   Test: Salary pocket auto-created on first salary detection
+
+5.2 Rule engine: Auto-create Salary, Rent, Freelance pockets  
+   Test: After 3 months data → 7 pockets created
+
+5.3 API: GET /pockets → returns list with current balance  
+   Test: Frontend shows 6 pockets grid
+
+5.4 Drag-drop money move endpoint POST /pockets/transfer  
+   Test: Balance updates instantly both sides
+
+### 6. Family Groups & Splits
+6.1 Create family_groups & family_members tables  
+   Test: Migration success
+
+6.2 Invite flow: POST /family/invite → SMS + deep link  
+   Test: Receiver joins with one tap
+
+6.3 Split rules table (percentage, category, members)  
+   Test: Default 50:50 groceries rule applied
+
+6.4 Transaction split worker → creates split records + UPI request  
+   Test: Long-press → wife’s Zomato → husband gets ₹420 request
+
+### 7. Transaction Categorisation & Cash Entry
+7.1 Merchant → category ML model (train on 500k Indian transactions)  
+   Test: 92%+ accuracy on hold-out set
+
+7.2 Voice → text → transaction (Google Speech-to-Text Hindi + English)  
+   Test: “Bhai four hundred fifty petrol dala” → ₹450 petrol entry
+
+7.3 Bill OCR (Google Vision + custom training for Indian receipts)  
+   Test: 50 real bills → 95% amount & merchant correct
+
+### 8. Cash-Flow Forecast Engine
+8.1 Daily job: calculate next 45-day forecast per user  
+   Test: Returns red/yellow/green zones
+
+8.2 Store forecasts in income_forecasts table  
+   Test: Graph renders correctly
+
+### 9. Daily Brief Notification
+9.1 Create user notification settings (time, quiet hours)  
+   Test: Saved correctly
+
+9.2 Firebase Cloud Messaging topic per user  
+   Test: 8 PM IST → notification delivered
+
+9.3 Template engine for 11 languages  
+   Test: “Aaj ka kharcha ₹1,840” appears in Hindi user
+
+### 10. Tax Engine (MVP First, Full Later)
+10.1 Create tax_data table + AY enum  
+    Test: Migration
+
+10.2 API: Upload Form-16 PDF → extract JSON (pdf-co + regex)  
+    Test: 50 real Form-16 → 98% fields correct
+
+10.3 Import 26AS & AIS via password-protected PDF upload  
+    Test: Matches with Form-16 salary
+
+10.4 Demat API integration (Decfin / Zerodha) → capital gains JSON  
+    Test: ₹1.2L LTCG correctly indexed
+
+10.5 Regime comparator logic (old vs new)  
+    Test: Shows exact tax difference
+
+10.6 Generate pre-filled ITR XML (ITR-2 & ITR-3)  
+    Test: Valid XML passes income tax portal validator
+
+10.7 E-file endpoint (partner with ClearTax API or direct)  
+    Test: Real ITR filed in sandbox
+
+### 11. Home Down-Payment Goal
+11.1 Goals table + type: home  
+    Test: Migration
+
+11.2 City → avg property price database (99acres scraper fallback)  
+    Test: Mumbai 2BHK → ₹1.6 Cr average
+
+11.3 PMAY eligibility engine (income, first-time, etc.)  
+    Test: ₹12 lakh couple → ₹2.67 lakh subsidy shown
+
+11.4 Monthly auto-transfer from Salary pocket → Home vault  
+    Test: ₹8,000 moved on 5th every month
+
+### 12. Frontend – React Native (Parallel after APIs ready)
+12.1–12.50 → Splash → Onboarding 5 screens  
+12.51–12.100 → Home screen with pockets grid + cash-flow graph  
+12.101–12.150 → Transactions infinite scroll + long-press split  
+12.151–12.200 → Family tab + invite + split rules  
+12.201–12.250 → Tax tab full flow  
+12.251–12.300 → Goals tab + PMAY card  
+… (continues)
+
+### 13. Regional Languages (Parallel)
+13.1 i18next + 11 JSON files  
+    Test: Toggle language → entire app changes
+
+13.2 Right-to-left support ready (future Arabic if needed)
+
+### 14. Beta Launch Tasks
+14.1 Internal dogfooding (100 employees)  
+14.2 Closed beta 5,000 X + Reddit users  
+14.3 Bugbash + hotfix loop (2 weeks)  
+14.4 App Store + Play Store submission  
+14.5 Launch day!
+
+Ab bas “git checkout -b task/1.1-monorepo” likho aur shuru karo.  
+Sab tasks atomic hain — koi bhi developer 30 minute mein complete kar sakta hai.  
+Jai Hind, jaldi million users banate hain.

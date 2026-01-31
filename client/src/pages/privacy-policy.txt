@@ -1,0 +1,205 @@
+import React from "react";
+import { MobileShell } from "@/components/layout/mobile-shell";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft } from "lucide-react";
+import { useRoute } from "wouter";
+
+export default function PrivacyPolicy() {
+  const [, navigate] = useRoute();
+
+  return (
+    <MobileShell>
+      <div className="pb-8">
+        {/* Header */}
+        <div className="bg-white p-6 border-b border-gray-100 sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-2xl font-heading font-bold">Privacy Policy</h1>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">Last Updated: Nov 29, 2025</p>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-6 max-w-2xl mx-auto">
+          
+          {/* Introduction */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">1. Introduction</h2>
+            <p className="text-sm text-gray-700">
+              BazaarBudget ("we", "us", "our") values your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and website.
+            </p>
+          </section>
+
+          {/* Information We Collect */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">2. Information We Collect</h2>
+            <div className="space-y-2 text-sm">
+              <p><strong>Personal Information:</strong> Phone number, name, email address, family details</p>
+              <p><strong>Financial Data:</strong> Transaction history, expense categories, payment methods (we do not store card details)</p>
+              <p><strong>Device Information:</strong> Device ID, OS version, app version</p>
+              <p><strong>Usage Data:</strong> Features used, time spent, crash reports</p>
+              <p><strong>Photos:</strong> Receipt images you voluntarily upload</p>
+            </div>
+          </section>
+
+          {/* How We Use Information */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">3. How We Use Your Information</h2>
+            <ul className="text-sm text-gray-700 space-y-2 list-disc list-inside">
+              <li>Provide core features: expense tracking, budgeting, family sharing</li>
+              <li>Generate reports and analytics for your family</li>
+              <li>Send transaction notifications and reminders</li>
+              <li>Improve app performance and user experience</li>
+              <li>Communicate updates and support messages</li>
+              <li>Comply with legal obligations (tax filing, RBI regulations)</li>
+            </ul>
+          </section>
+
+          {/* Data Security */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">4. Data Security</h2>
+            <p className="text-sm text-gray-700">
+              We use industry-standard encryption (SSL/TLS) to protect your data during transmission. Your financial data is stored securely on encrypted servers with access controls and regular backups. However, no method of transmission over the internet is 100% secure.
+            </p>
+          </section>
+
+          {/* Family Data Sharing */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">5. Family Data Sharing</h2>
+            <p className="text-sm text-gray-700">
+              When you create a family group, you agree to share expense data with invited members. Each member can see shared transactions and family analytics based on their role and permissions. You can revoke access anytime.
+            </p>
+          </section>
+
+          {/* Third-Party Services */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">6. Third-Party Services</h2>
+            <p className="text-sm text-gray-700">
+              We may integrate with third-party services for:
+            </p>
+            <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+              <li>Payment processing (Stripe, Razorpay)</li>
+              <li>Cloud storage (Google Drive for backups)</li>
+              <li>Analytics (Firebase, Mixpanel)</li>
+              <li>SMS delivery (Twilio)</li>
+            </ul>
+            <p className="text-sm text-gray-700 mt-2">These services have their own privacy policies.</p>
+          </section>
+
+          {/* Your Rights */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">7. Your Rights</h2>
+            <p className="text-sm text-gray-700">
+              You have the right to:
+            </p>
+            <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+              <li>Access your personal data</li>
+              <li>Request corrections to inaccurate data</li>
+              <li>Request deletion of your account and data</li>
+              <li>Export your data in standard format</li>
+              <li>Withdraw consent at any time</li>
+            </ul>
+          </section>
+
+          {/* Data Retention */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">8. Data Retention</h2>
+            <p className="text-sm text-gray-700">
+              We retain transaction data for 7 years (as per Indian tax regulations). After account deletion, your data is purged within 30 days, except where legally required to retain.
+            </p>
+          </section>
+
+          {/* GDPR & CCPA Compliance */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">9. Compliance with Regulations</h2>
+            <p className="text-sm text-gray-700">
+              We comply with:
+            </p>
+            <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+              <li><strong>GDPR:</strong> If you're in EU</li>
+              <li><strong>CCPA:</strong> If you're in California</li>
+              <li><strong>India's Digital Personal Data Protection Act, 2023</strong></li>
+              <li><strong>RBI Guidelines:</strong> For financial data handling</li>
+            </ul>
+          </section>
+
+          {/* Children's Privacy */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">10. Children's Privacy</h2>
+            <p className="text-sm text-gray-700">
+              BazaarBudget is not intended for children under 13. We do not knowingly collect data from children under 13. If we discover we have collected such data, we will delete it immediately.
+            </p>
+          </section>
+
+          {/* Contact Us */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">11. Contact Us</h2>
+            <p className="text-sm text-gray-700">
+              If you have privacy concerns or requests:
+            </p>
+            <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
+              <p><strong>Email:</strong> niteshjha.uiux@yahoo.com</p>
+              {/* <p><strong>WhatsApp:</strong> +91 98765 43210</p> */
+              <p><strong>Address:</strong> BazaarBudget, Mumbai, India</p> */}
+            </div>
+          </section>
+
+          {/* Policy Changes */}
+          <section className="space-y-3">
+            <h2 className="text-lg font-bold">12. Changes to This Policy</h2>
+            <p className="text-sm text-gray-700">
+              We may update this policy periodically. We will notify you of significant changes via email or app notification. Your continued use of BazaarBudget constitutes acceptance of the updated policy.
+            </p>
+          </section>
+
+          {/* Download Links */}
+          <section className="space-y-4 mt-8 pt-8 border-t border-gray-200">
+            <h2 className="text-lg font-bold">Get BazaarBudget</h2>
+            <div className="space-y-3">
+              <a 
+                href="https://play.google.com/store/apps/details?id=com.bazaarbudget.mobile" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <Button className="w-full bg-green-600 hover:bg-green-700">
+                  📱 Download on Google Play Store
+                </Button>
+              </a>
+              
+              <a 
+                href="https://apps.apple.com/app/bazaarbudget/id1234567890" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <Button className="w-full bg-black hover:bg-gray-800">
+                  🍎 Download on Apple App Store
+                </Button>
+              </a>
+
+              <a 
+                href="https://www.bazaarbudget.in" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <Button variant="outline" className="w-full">
+                  🌐 Visit Website
+                </Button>
+              </a>
+            </div>
+          </section>
+
+          {/* Footer */}
+          <div className="text-center text-xs text-gray-400 pt-8">
+            <p>© 2025 BazaarBudget. All rights reserved.</p>
+            <p className="mt-1">Made with ❤️ for Indian families</p>
+          </div>
+        </div>
+      </div>
+    </MobileShell>
+  );
+}
